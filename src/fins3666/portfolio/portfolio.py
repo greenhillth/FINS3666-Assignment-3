@@ -28,7 +28,7 @@ class Portfolio:
         self.unit_values = self._adjust_array(unit_values, default=0)
 
         # Asset Characteristics (Determined)
-        self.asset_values = np.sum(self.sizes * self.unit_values)
+        self.asset_values = self.sizes * self.unit_values
         total_value = np.sum(self.asset_values)
         self.weights = self.asset_values / \
             total_value if total_value > 0 else np.zeros(len(assets))
@@ -66,6 +66,18 @@ class Portfolio:
         self.unit_values[idx] = unit_value
 
         self._update()
+
+    def to_string(self):
+        """
+        Returns a string representation of the portfolio.
+
+        Args:
+            None
+
+        Returns:
+            str: String representation of the portfolio.
+        """
+        return self.__str__()
 
     """Private methods for Portfolio class"""
 
@@ -118,7 +130,7 @@ class Portfolio:
         df = pd.DataFrame(index=self.assets)
         df["Size"] = self.sizes
         df["UnitValue"] = self.unit_values
-        df["AssetValue"] = self.sizes * self.unit_values
+        df["AssetValue"] = self.asset_values
         df["Position"] = ['Short' if s < 0 else 'Long' for s in self.sizes]
         df["Weight"] = self.weights
         return df
@@ -127,8 +139,25 @@ class Portfolio:
         """Returns the full portfolio DataFrame."""
         return self.data
 
+    def __str__(self):
+        df = self.summary()
+        out = f"\n\n{str('Portfolio Overview'):^80}" + "\n"
+        out += "=" * 80 + "\n"
+        out += f"{'Asset':<10}{'Units':>9}{'Unit Value':>18}{'Asset Value':>15}{'Position':>15}{'Weight':>10}\n"
+        out += "=" * 80 + "\n"
+        for asset, row in df.iterrows():
+            out += (
+                f"{asset:<10}"
+                f"{row['Size']:>10.2f}"
+                f"{f'${row['UnitValue']:,.2f}':>15}"
+                f"{f'${row['AssetValue']:,.2f}':>15}"
+                f"{str(row['Position']):>15}"
+                f"{row['Weight']:>10.2%}\n"
+            )
+        out += f"\nPortfolio - {len(self.assets)} assets\n"
+        out += f"Unit Price Timestamp: {self.timestamp},\n"
+        out += f"Net Value ($USD): ${self.total_value:,.2f}"
+        return out
+
     def __repr__(self):
-        return self.data.to_string() + \
-            f"\nPortfolio - ({len(self.assets)} assets)\n" + \
-            f"Timestamp: {self.timestamp},\n" + \
-            f"Net Value ($USD): ${self.total_value:,.2f}"
+        return f"{len(self.assets)} Asset, USD${self.total_value:,.2f} Nominal Value Portfolio Object"

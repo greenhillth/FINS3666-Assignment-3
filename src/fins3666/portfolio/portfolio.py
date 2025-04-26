@@ -119,7 +119,7 @@ class Portfolio:
         df["Size"] = self.sizes
         df["UnitValue"] = self.unit_values
         df["AssetValue"] = self.sizes * self.unit_values
-        df["Position"] = 'Short' if self.sizes < 0 else 'Long'
+        df["Position"] = ['Short' if s < 0 else 'Long' for s in self.sizes]
         df["Weight"] = self.weights
         return df
 
@@ -128,4 +128,7 @@ class Portfolio:
         return self.data
 
     def __repr__(self):
-        return self.data.to_string() + "\n" + f"Portfolio - ({len(self.assets)} assets)"
+        return self.data.to_string() + \
+            f"\nPortfolio - ({len(self.assets)} assets)\n" + \
+            f"Timestamp: {self.timestamp},\n" + \
+            f"Net Value ($USD): ${self.total_value:,.2f}"

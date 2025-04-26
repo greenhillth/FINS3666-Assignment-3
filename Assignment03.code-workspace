@@ -1,0 +1,12 @@
+{
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "/home/tgreenhill/miniconda3/envs/fins3646/bin/python"
+    // "jupyter.jupyterServerType": "local",
+    // "jupyter.interpreterPath": "/home/tgreenhill/miniconda3/envs/fins3646/bin/python"
+  }
+}

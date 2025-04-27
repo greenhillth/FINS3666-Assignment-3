@@ -24,6 +24,21 @@ def load_dataframe(path):
     return df
 
 
+def load_market(path):
+    """
+    Loads a CSV file into a pandas DataFrame and converts the 'Date' column to datetime.
+    Args:
+        path (str): Relative path to CSV file.
+    Returns:
+        pd.DataFrame: The loaded DataFrame with 'Period' column converted to datetime.
+    """
+    df = pd.read_csv(path)
+    df['Timestamp'] = pd.to_datetime(df['Date'], format='%D/%m/%Y')
+    df.sort_values(by='Date', ascending=True, inplace=True)
+    df['Timestamp'] = df['Period'].dt.to_period('D')
+    return df
+
+
 def getExchangeRate(df, termCurrency, baseCurrency='USD'):
     """
     Gets the exchange rate between two currencies from a DataFrame.

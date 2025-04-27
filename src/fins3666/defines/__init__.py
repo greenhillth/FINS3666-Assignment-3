@@ -1,12 +1,18 @@
 import pandas as pd
 import numpy as np
 import os
+from dotenv import load_dotenv
 
 current_dir = os.getcwd()
 
 DIR_DATA_RAW = os.path.join(current_dir, 'data/raw')
 DIR_DATA_PROCESSED = os.path.join(current_dir, 'data/processed')
 DIR_OUT = os.path.join(current_dir, 'out')
+
+load_dotenv()
+
+FS_API_USER = os.getenv('API_USER')
+FS_API_KEY = os.getenv('API_KEY')
 
 ACCOUNT_SIZE_USD = 12e6
 NET_POSITION = 0

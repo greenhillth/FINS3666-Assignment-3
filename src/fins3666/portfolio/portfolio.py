@@ -136,6 +136,9 @@ class Portfolio:
             'Ask': pd.Series(dtype='float64'),
             'Mid': pd.Series(dtype='float64')})
         df.set_index('Asset', inplace=True)
+
+        df.loc['USD'] = [datetime(1999, 1, 1), 1.0, 1.0, 1.0]
+
         return df
 
     def _build_trade_df(self):
@@ -258,31 +261,46 @@ class Portfolio:
                  'AssetType': asset_type, 'CloseTimestamp': None, 'Open': True},
                 ignore_index=True)
 
-    def get_current_portfolio(self, current_data: Union[pd.DataFrame, pd.Series, None] = None):
+    def portfolio_summary(self):
         """
-        Builds portfolio by getting current values of assets in the ledger.
-        Args:
-            current_data (`DataFrame` or `Series`): A set of current values for the model. 
+        Builds a portfolio snapshot by getting current market values of assets from the ledger.
+
         Returns:
             pd.DataFrame: DataFrame containing the current portfolio values.
         """
-        # Filter out closed positions
-        open_positions = self.ledger[self.ledger['Open'] == True].copy()
 
-        open_positions['PurchaseCost'] = -open_positions['Units'] * \
-            open_positions['UnitWAP']
-        if current_data is None:
-            open_positions['CurrentAssetValue'] = open_positions['Units'] * \
-                open_positions['UnitLastPrice']
-        else:
-            open_positions['CurrentAssetValue'] = sum(
-                Portfolio.get_asset_values(current_data, open_positions['Asset'], atype='C', otype='Mid'))
-        open_positions['Size'] = open_positions['Units'].abs()
-        open_positions['Position'] = np.where(
-            open_positions['Units'] >= 0, 'Long', 'Short')
-        open_positions['Weight'] = open_positions['CurrentAssetValue'] / \
-            np.sum(open_positions['CurrentAssetValue'])
-        return open_positions
+        # Filter out closed positions
+        summary = self.ledger[self.ledger['Open']].copy()
+        if summary.empty:
+            return pd.DataFrame()
+
+        # Merge ledger with latest market data for each asset
+        summary = summary.merge(
+            self.mkt,
+            left_on='Asset',
+            right_index=True,
+            how='left')
+
+        summary['PurchaseCost'] = -summary['Units'] * summary['UnitWAP']
+
+        summary['CurrentUnitVal'] = summary['Mid']
+        summary['CurrentAssetValue'] = summary['CurrentUnitVal'] * \
+            summary['Units']
+
+        summary['Size'] = summary['Units'].abs()
+        summary['Position'] = np.where(summary['Units'] >= 0, 'Long', 'Short')
+        total_value = summary['CurrentAssetValue'].sum()
+        summary['Weight'] = summary['CurrentAssetValue'] / total_value
+
+        # Sort Columns
+        columns_to_keep = [
+            'Asset', 'Units', 'UnitWAP', 'PurchaseCost', 'CurrentUnitVal',
+            'CurrentAssetValue', 'Size', 'Position', 'Weight', 'AssetType',
+            'OpenTimestamp', 'UpdateTimestamp'
+        ]
+        summary = summary[columns_to_keep]
+
+        return summary
 
     def to_string(self):
         """
@@ -340,7 +358,7 @@ class Portfolio:
 
     def summary(self):
         """Returns the full portfolio DataFrame."""
-        return self.get_current_portfolio()
+        return self.portfolio_summary()
 
     def __str__(self):
         df = self.summary()

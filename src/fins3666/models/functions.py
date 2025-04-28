@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from fins3666.defines import Order
 
 
 def execute_strategy(strategy, data):

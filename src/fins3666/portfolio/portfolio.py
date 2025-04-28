@@ -1,103 +1,69 @@
 import pandas as pd
 import numpy as np
-from typing import Union, List, TypedDict, NotRequired
+import uuid
+from typing import Union, List, Optional, Literal
 from datetime import datetime
+from dataclasses import dataclass, field
+from collections import namedtuple
 
-"""
-CURRENTLY REFACTORING THE PORTFOLIO TO RELY ON A TRANSACTION LEDGER.
-THIS WILL ENABLE BETTER TRACKING OF ASSET VALUES AND TRANSACTIONS.
-WORK IN PROGRESS.
-
-I AM A COMPLETE DISASTER.
-I AM A MONUMENTAL FAILURE.
-I AM A GLORIFIED PAPERWEIGHT.
-I AM A NEVER-ENDING SOURCE OF REGRET.
-"""
+AssetSpreads = namedtuple('AssetSpreads', ['bid', 'ask', 'mid'])
 
 
-class AssetDict(TypedDict):
-    """
-    Represents a single asset entry for the portfolio.
+@dataclass(frozen=True)
+class Order:
 
-    Attributes:
-        name (str): 
-            The name or symbol of the asset (e.g., "AUD", "USD", "BTC").
-
-        units (Union[int, float]): 
-            The number of units in the order. Negative values typically indicate a sale, unless otherwise specified.
-
-        purchase_price (float): 
-            The price paid per unit at the time of purchase, in USD.
-
-        timestamp (datetime): 
-            The datetime when the asset was purchased.
-
-        forecast_return (float, optional): 
-            The expected return on the asset. Negative values imply compounding liability. 
-            Defaults to 0.0 (no forecasted return).
-
-        order_type (str, optional): 
-            The type of order (e.g., 'market', 'limit'). Defaults to None.
-
-        exchange (str, optional): 
-            The exchange where the asset was purchased. Defaults to None.
-
-        asset_type (str, optional): 
-            The type of asset (e.g., 'stock', 'bond', 'currency'). Defaults to 'Currency'.
-
-    Example:
-        >>> asset = {
-        >>>     "name": "BTC",
-        >>>     "units": 1.5,
-        >>>     "purchase_price": 30000.0,
-        >>>     "timestamp": datetime.now(),
-        >>>     "forecast_return": 0.07,
-        >>>     "order_type": "market",
-        >>>     "exchange": "Binance",
-        >>>     "asset_type": "Crypto"
-        >>> }
-
-        >>> currency_asset = {
-        >>>     "name": "USD",
-        >>>     "units": 1000,
-        >>>     "purchase_price": 1.0,
-        >>>     "timestamp": datetime.now()
-        >>> }
-
-    Returns:
-        None
-    """
-    name: str
+    asset: str
     units: Union[int, float]
-    purchase_price: float
+    order: str
     timestamp: datetime
-    # Optional attributes
-    forecast_return: NotRequired[float] = 0.0
-    order_type: NotRequired[str] = None
-    exchange: NotRequired[str] = None
-    asset_type: NotRequired[str] = 'Currency'
+
+    currency: Optional[str] = 'USD'
+    order_type: Optional[str] = 'market'
+    expiry: Optional[str] = None
+    limit: Optional[float] = np.nan
+    exchange: Optional[str] = None
+    asset_type: Optional[str] = "Currency"
+    order_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    def __post_init__(self):
+        if self.units <= 0:
+            raise ValueError(
+                "Units must be greater than zero. Specify order='sell' for sale")
+        if self.limit <= 0:
+            raise ValueError("Purchase price must be positive.")
+        if not isinstance(self.timestamp, datetime):
+            raise TypeError("Timestamp must be a datetime object.")
+        if self.order_type == 'limit' and np.isnan(self.limit):
+            raise ValueError("No limit specified for limit order")
+
+    def tic(self):
+        return f'{self.asset}/{self.currency}' if self.asset_type == "Currency" else f'{self.asset}.{self.exchange}'
+
+    def sym(self):
+        syms = {'CHF': 'SFr.', 'EUR': '€', 'GBP': '£', 'JPY': '¥', 'SEK': 'kr'}
+        return syms.get(self.currency, '$')
 
 
 class Portfolio:
 
-    def __init__(self, assets: Union[None, AssetDict, List[AssetDict]]):
+    def __init__(self, timestamp: datetime, balance: Union[dict, List[dict]]):
         """
         Initialize a Portfolio.
 
         Args:
-            starting_assets (List[AssetDict], optional):
+            starting_balance (List[AssetDict], optional):
                 A list of initial assets to populate the portfolio.
 
         Example:
-            >>> portfolio = Portfolio(starting_assets=[{
-            >>>     "timestamp": datetime.now(),
-            >>>     "asset": "BTC",
-            >>>     "units": 1.5,
-            >>>     "unit_price_usd": 30000,
-            >>>     "order_type": "buy",
-            >>>     "exchange": "Binance",
-            >>>     "asset_type": "Crypto"
-            >>> }])
+            >>> portfolio = Portfolio(timestamp=datetime(2020,09,1), starting_balance=[{
+            >>>     "asset": "USD",
+            >>>     "units": 12000,
+            >>>     "unit_value_USD": 1},
+            >>>     {
+            >>>     "asset": "AUD",
+            >>>     "units": 0,
+            >>>     "unit_value_USD": 1}
+            >>> ])
 
         Returns:
             None
@@ -112,12 +78,62 @@ class Portfolio:
         self.beta = None
         self.alpha = None
 
-        # Create Position Ledger with initial assets, if supplied
-        self.ledger = self._build_ledger_df(assets)
+        # Create Position Ledger with initial balance, if supplied
+        self.ledger = self._build_ledger_df(timestamp, balance)
         # Create transaction record
         self.trades = self._build_trade_df()
         # Create empty market data
         self.mkt = self._build_mkt_df()
+        self.forex_spreads = AssetSpreads(None, None, None)
+
+        self.orders = []
+
+    def new_order(self, order: Order):
+        self.orders.append(order)
+
+    def update(self, timestamp: datetime):
+        self.process_orders(timestamp)
+
+    def process_orders(self, timestamp: datetime):
+        cancelled = []
+        executed = []
+        remaining = []
+        for order in self.orders:
+            bid, ask, mid = self.asset_lookup(self.forex_spreads, order.tic())
+            if order.expiry is not None and order.expiry < timestamp:
+                cancelled.append(order)
+            elif order.order_type == 'market':
+                if order.order == 'buy':
+                    self.execute_trade(order, ask)
+                elif order.order == 'sell':
+                    self.execute_trade(order, bid)
+                executed.append(order)
+            elif order.order_type == 'limit':
+                if order.order == 'buy' and ask <= order.limit:
+                    self.execute_trade(order, ask)
+                elif order.order == 'sell' and bid >= order.limit:
+                    self.execute_trade(order, bid)
+                executed.append(order)
+            else:
+                remaining.append(order)
+
+        self.orders = remaining
+
+    def execute_trade(self, order, price):
+        msg = str()
+        if order.order == 'buy':
+            msg += (
+                f'Executed {order.order_type} buy order of {order.units} units of {order.asset}'
+                f' for {order.currency}{order.sym()}{price:,.4f} per unit.'
+                f' Transaction cost: {order.sym()}{(order.units*price):,.2f}'
+            )
+        else:
+            msg += (
+                f'Executed {order.order_type} {order.order} order of {order.units} units of {order.asset}'
+                f' for {order.currency}{order.sym()}{price:,.4f} per unit.'
+                f' Transaction gain: {order.sym()}{(order.units*price):,.2f}'
+            )
+        print(msg)
 
     def updateMarketData(self, currentData: Union[dict, List[dict]]):
         """
@@ -127,7 +143,7 @@ class Portfolio:
             currentData (Union[dict, List[dict]]): A dictionary or list of dictionaries containing market data.
                 Each dictionary should have the following structure, formatted by the `format_market_data` function:
                 {
-                    "asset": str,          # The name of the asset (e.g., "BTC", "USD").
+                    "tic": str,            # The asset identifier (e.g., "CBA.AX", "USD/EUR").
                     "timestamp": datetime, # The timestamp of the market data.
                     "bid": float,          # The bid price of the asset.
                     "ask": float,          # The ask price of the asset.
@@ -140,76 +156,34 @@ class Portfolio:
         if isinstance(currentData, dict):
             currentData = [currentData]
 
-        for data in currentData:
-            asset = data["asset"]
-            if asset not in self.mkt.index:
-                new_data = pd.DataFrame([{
-                    "Asset": asset,
-                    "Timestamp": data["timestamp"],
-                    "Bid": data["bid"],
-                    "Ask": data["ask"],
-                    "Mid": data["mid"],
-                }]).set_index("Asset")
-                self.mkt = pd.concat([self.mkt, new_data])
-            elif data["timestamp"] > self.mkt.loc[asset, "Timestamp"]:
-                self.mkt.loc[asset, "Timestamp"] = data["timestamp"]
-                self.mkt.loc[asset, "Bid"] = data["bid"]
-                self.mkt.loc[asset, "Ask"] = data["ask"]
-                self.mkt.loc[asset, "Mid"] = data["mid"]
+        def preprocess_fx_pair(d):
+            if isinstance(d.get('tic', ''), str) and 'USD' in d['tic'] and '/' in d['tic']:
+                base, quote = d['tic'].split('/')
+                if base == 'USD':
+                    return {
+                        'tic': quote,
+                        'timestamp': pd.to_datetime(d['timestamp']),
+                        'bid': d['bid'],
+                        'ask': d['ask'],
+                        'mid': d['mid']
+                    }
+                else:
+                    return {
+                        'tic': base,
+                        'timestamp': pd.to_datetime(d['timestamp']),
+                        'bid': (1/d['ask']),
+                        'ask': (1/d['bid']),
+                        'mid': d['mid']
+                    }
+            return None
 
-    def add_trade(self, order: AssetDict):
-        """
-        Appends an executed order to the trades record and updates the internal ledger.
+        usd_row = pd.DataFrame([{'tic': 'USD', 'timestamp': datetime(
+            2000, 1, 1), 'bid': 1, 'ask': 1, 'mid': 1}])
+        fx_df = pd.DataFrame(
+            filter(None, (preprocess_fx_pair(d) for d in currentData)))
 
-        Args:
-            order (AssetDict):
-                A dictionary representing a single asset trade, containing:
-                    - 'timestamp' (datetime): trade timestamp
-                    - 'asset' (str): asset name
-                    - 'units' (float): number of units traded
-                    - 'unit_price_usd' (float): price per unit
-                    - 'order_type' (str, optional): 'market', 'limit'.
-                    - 'exchange' (str, optional): exchange name
-                    - 'asset_type' (str): type of asset
-                    - (Optional fields): 'order_value_usd', 'forecast_return', 'i_usd'
-
-        Example:
-            >>> trade = {
-            >>>     "timestamp": datetime.now(),
-            >>>     "asset": "ETH",
-            >>>     "units": 10,
-            >>>     "unit_price_usd": 2000,
-            >>>     "order_type": "buy",
-            >>>     "exchange": "Coinbase",
-            >>>     "asset_type": "Crypto"
-            >>> }
-            >>> portfolio.add_trade(trade)
-
-        Returns:
-            None
-        """
-        timestamp = order.get('timestamp', None)
-        asset = order['name']
-        units = order['units']
-        unit_price_usd = order['purchase_price']
-        order_value_usd = units * unit_price_usd
-        forecast_return = order.get('forecast_return', 0)
-        i_usd = order.get('i_USD', 0)
-        order_type = order.get('order_type', 'Market')
-        exchange = order.get('exchange', None)
-        asset_type = order.get('asset_type', 'Currency')
-
-        if units == 0:
-            raise ValueError("Invalid trade data: Units cannot be zero.")
-        if timestamp is None:
-            raise ValueError("Invalid trade data: Timestamp cannot be None.")
-
-        self.trades = self.trades.append(
-            {'Timestamp': timestamp, 'Asset': asset, 'Units': units, 'UnitPriceUSD': unit_price_usd,
-             'OrderValueUSD': order_value_usd, 'ForecastReturn': forecast_return, 'i_USD': i_usd,
-             'OrderType': order_type, 'Exchange': exchange, 'AssetType': asset_type},
-            ignore_index=True)
-        self._update_ledger(order)
+        fx_df = pd.concat([usd_row, fx_df], ignore_index=True)
+        self.forex_spreads = AssetSpreads(*Portfolio.buildForexMatrix(fx_df))
 
     def summary(self):
         """
@@ -238,9 +212,11 @@ class Portfolio:
             summary['Units']
 
         summary['Size'] = summary['Units'].abs()
-        summary['Position'] = np.where(summary['Units'] >= 0, 'Long', 'Short')
-        total_value = summary['CurrentAssetValue'].sum()
-        summary['Weight'] = summary['CurrentAssetValue'] / total_value
+        summary['Position'] = np.select([summary['Units'] > 0, summary['Units'] < 0],
+                                        ['Long', 'Short'], default='None')
+        total_value = summary['CurrentAssetValue'].sum(skipna=True)
+        summary['Weight'] = np.where(
+            total_value != 0, summary['CurrentAssetValue'] / total_value, 0)
 
         # Sort Columns
         columns_to_keep = [
@@ -266,7 +242,7 @@ class Portfolio:
 
     """Private methods for Portfolio class"""
 
-    def _build_ledger_df(self, startingAssets: Union[None, AssetDict, List[AssetDict]]):
+    def _build_ledger_df(self, timestamp, startingBal: Union[None, dict, List[dict]]):
         """
         Builds the internal pandas DataFrame representing the ledger containing all open and closed positions.
         Args:
@@ -279,31 +255,36 @@ class Portfolio:
         Returns:
             pd.DataFrame: DataFrame representing the ledger.
         """
+        if startingBal is not None:
+            if isinstance(startingBal, dict):
+                startingBal = [startingBal]
+            df = pd.DataFrame([{
+                'OpenTimestamp': timestamp,
+                'UpdateTimestamp': timestamp,
+                'Asset': d['asset'],
+                'Units': d['units'],
+                'UnitWAP': d['unit_value_USD'],
+                'UnitLastPrice': d['unit_value_USD'],
+                'TransactionIdxs': [],
+                'AssetType': 'Currency',
+                'PositionUSD': d['units']*d['unit_value_USD'],
+                'CloseTimestamp': None,
+                'Open': True}
+                for d in startingBal])
+        else:
+            df = pd.DataFrame({
+                'OpenTimestamp': pd.Series(dtype='datetime64[ns]'),
+                'UpdateTimestamp': pd.Series(dtype='datetime64[ns]'),
+                'Asset': pd.Series(dtype='str'),
+                'Units': pd.Series(dtype='float64'),
+                'UnitWAP': pd.Series(dtype='float64'),
+                'UnitLastPrice': pd.Series(dtype='float64'),
+                'TransactionIdxs': pd.Series(dtype='object'),
+                'AssetType': pd.Series(dtype='str'),
+                'PositionUSD': pd.Series(dtype='float64'),
+                'CloseTimestamp': pd.Series(dtype='datetime64[ns]'),
+                'Open': pd.Series(dtype='bool')})
 
-        df = pd.DataFrame({
-            'OpenTimestamp': pd.Series(dtype='datetime64[ns]'),
-            'UpdateTimestamp': pd.Series(dtype='datetime64[ns]'),
-            'Asset': pd.Series(dtype='str'),
-            'Units': pd.Series(dtype='float64'),
-            'UnitWAP': pd.Series(dtype='float64'),
-            'UnitLastPrice': pd.Series(dtype='float64'),
-            'TransactionIdxs': pd.Series(dtype='object'),
-            'AssetType': pd.Series(dtype='str'),
-            'PositionUSD': pd.Series(dtype='float64'),
-            'CloseTimestamp': pd.Series(dtype='datetime64[ns]'),
-            'Open': pd.Series(dtype='bool')})
-
-        if startingAssets is not None:
-            if isinstance(startingAssets, dict):
-                startingAssets = [startingAssets]
-            for asset in startingAssets:
-                new_row = pd.DataFrame([{
-                    'OpenTimestamp': asset['timestamp'], 'UpdateTimestamp': asset['timestamp'],
-                    'Asset': asset['name'], 'Units': asset['units'], 'UnitWAP': asset['purchase_price'], 'UnitLastPrice': asset['purchase_price'],
-                    'TransactionIdxs': [], 'AssetType': asset.get('asset_type', 'Currency'),
-                    'PositionUSD': 0, 'CloseTimestamp': None, 'Open': True
-                }])
-                df = pd.concat([df, new_row], ignore_index=True)
         return df
 
     def _build_mkt_df(self):
@@ -338,17 +319,23 @@ class Portfolio:
         Returns:
             pd.DataFrame: An empty trades dataframe with predefined columns.
         """
+
         df = pd.DataFrame({
             'Timestamp': pd.Series(dtype='datetime64[ns]'),
             'Asset': pd.Series(dtype='str'),
+            'Buy/Sell': pd.Series(dtype='str'),
             'Units': pd.Series(dtype='float64'),
-            'UnitPriceUSD': pd.Series(dtype='float64'),
-            'OrderValueUSD': pd.Series(dtype='float64'),
+            'UnitPrice': pd.Series(dtype='float64'),
+            'Balance': pd.Series(dtype='float64'),
+            'BaseCurrency': pd.Series(dtype='float64'),
+            'OrderValue': pd.Series(dtype='float64'),
             'ForecastReturn': pd.Series(dtype='float64'),
             'i_USD': pd.Series(dtype='float64'),
             'OrderType': pd.Series(dtype='str'),
             'Exchange': pd.Series(dtype='str'),
-            'AssetType': pd.Series(dtype='str')})
+            'AssetType': pd.Series(dtype='str'),
+            'ID': pd.Series(dtype='str')})
+        df.set_index('ID', inplace=True)
         return df
 
     def _update_ledger(self, transaction_id, timestamp, asset, units, unit_price_usd, order_value_usd, asset_type):
@@ -367,6 +354,22 @@ class Portfolio:
         Returns:
             None
         """
+        '''
+        {
+                'OpenTimestamp': timestamp,
+                'UpdateTimestamp': timestamp,
+                'Asset': d['asset'],
+                'Units': d['units'],
+                'UnitWAP': d['unit_value_USD'],
+                'UnitLastPrice': d['unit_value_USD'],
+                'TransactionIdxs': [],
+                'AssetType': 'Currency',
+                'PositionUSD': d['units']*d['unit_value_USD'],
+                'CloseTimestamp': None,
+                'Open': True}
+
+        '''
+
         # Check if open position for asset already exists
         existing_asset = self.ledger[self.ledger['Asset'] == asset]
         if not existing_asset.empty and existing_asset['Open'].values[0]:
@@ -394,6 +397,58 @@ class Portfolio:
                  'AssetType': asset_type, 'CloseTimestamp': None, 'Open': True},
                 ignore_index=True)
 
+    def _add_trade(self, timestamp: datetime, order: Order, price):
+        """
+        Appends an executed order to the trades record and updates the internal ledger.
+
+        Args:
+            order (AssetDict):
+                A dictionary representing a single asset trade, containing:
+                    - 'timestamp' (datetime): trade timestamp
+                    - 'asset' (str): asset name
+                    - 'units' (float): number of units traded
+                    - 'unit_price_usd' (float): price per unit
+                    - 'order_type' (str, optional): 'market', 'limit'.
+                    - 'exchange' (str, optional): exchange name
+                    - 'asset_type' (str): type of asset
+                    - (Optional fields): 'order_value_usd', 'forecast_return', 'i_usd'
+
+        Example:
+            >>> trade = {
+            >>>     "timestamp": datetime.now(),
+            >>>     "asset": "ETH",
+            >>>     "units": 10,
+            >>>     "unit_price_usd": 2000,
+            >>>     "order_type": "buy",
+            >>>     "exchange": "Coinbase",
+            >>>     "asset_type": "Crypto"
+            >>> }
+            >>> portfolio.add_trade(trade)
+
+        Returns:
+            None
+        """
+        id = str(uuid.uuid1())
+        asset = order.asset
+        typ = order.order
+        units = order.units
+        unit_price = price
+        currency = order.curr
+        order_value = units * unit_price
+        bal = -order_value if typ == 'buy' else order_value
+        forecast_return = 0.0
+        i_usd = 0.0
+        order_type = order.order_type
+        exchange = order.exchange
+        asset_type = order.get('asset_type', 'Currency')
+
+        trade = pd.DataFrame([{'Timestamp': timestamp, 'Asset': asset, 'Buy/Sell': typ, 'Units': units, 'UnitPrice': unit_price, 'Balance': bal, 'BaseCurrency': currency,
+                               'OrderValue': order_value, 'ForecastReturn': forecast_return, 'i_USD': i_usd,
+                               'OrderType': order_type, 'Exchange': exchange, 'AssetType': asset_type}], index=[id])
+
+        self.trades = pd.concat([self.trades, trade], ignore_index=True)
+        self._update_ledger(order)
+
     """Namespace methods for Portfolio class"""
 
     def __str__(self):
@@ -413,7 +468,7 @@ class Portfolio:
             )
         out += f"\nPortfolio - {len(df)} assets\n"
         out += f"Unit Price Timestamp: {df['UpdateTimestamp'].max()},\n"
-        out += f"Net Value ($USD): ${sum(df['CurrentAssetValue']):,.2f}"
+        out += f"Net Value ($USD): ${df['CurrentAssetValue'].sum(skipna=True):,.2f}"
 
         # get sum of
         return out
@@ -423,26 +478,39 @@ class Portfolio:
 
     """Static Methods"""
     @staticmethod
-    def buildForexMatrix(row, currencies=['AUD', 'CAD', 'CHF', 'EUR', 'GBP', 'JPY', 'NZD', 'SEK', 'SGD']):
+    def buildForexMatrix(df):
         """
         Builds a forex matrix from a row of data containing bid, ask, and mid prices for various currencies.
         Args:
-            row (pd.Series): A row of data containing bid, ask, and mid prices for various currencies.
+            df (pd.DataFrame): A forex dataframe with bid, ask, and mid prices for currencies, quoted in top row.
+            Example:
+               tic  timestamp         bid         ask         mid
+            0  USD 2000-01-01    1.000000    1.000000    1.000000
+            1  EUR 2023-01-02    0.936856    0.937119    0.936986
+            2  JPY 2023-01-02  131.930000  131.960000  131.944990
+            3  SEK 2023-01-02   10.414800   10.424200   10.419528
+            4  CAD 2023-01-02    1.354800    1.355100    1.354934
+            5  CHF 2023-01-02    0.925000    0.925400    0.925181
+            6  NZD 2023-01-02    1.580528    1.581778    1.581137
+            7  NOK 2023-01-02    9.848000    9.854000    9.850985
+            8  GBP 2023-01-02    0.831186    0.831463    0.831324
+            9  AUD 2023-01-02    1.474274    1.474926    1.474603
             currencies (list): List of currency codes to include in the matrix. Defaults to G10 list.
         Returns:
             tuple: A tuple containing three DataFrames: bid matrix, ask matrix, and mid matrix.
         """
+        currencies = df.loc[:, 'tic']
+        bid_vec = df.loc[:, 'bid'].to_numpy()
+        ask_vec = df.loc[:, 'ask'].to_numpy()
+        mid_vec = df.loc[:, 'mid'].to_numpy()
 
-        # Add USD to list of currencies
-        currencies.append('USD')
-
-        # Initialize bid/ask/mid vectors
-        bid_vec = np.array([row.get(f"{currency} Bid", 1.0)
-                           for currency in currencies])
-        ask_vec = np.array([row.get(f"{currency} Ask", 1.0)
-                           for currency in currencies])
-        mid_vec = np.array([row.get(f"{currency} Mid", 1.0)
-                           for currency in currencies])
+        # # Initialize bid/ask/mid vectors
+        # bid_vec = np.array([pow.get(f"{currency} Bid", 1.0)
+        #                    for currency in currencies])
+        # ask_vec = np.array([row.get(f"{currency} Ask", 1.0)
+        #                    for currency in currencies])
+        # mid_vec = np.array([row.get(f"{currency} Mid", 1.0)
+        #                    for currency in currencies])
 
         # Vectorized outer division
         bid_matrix = bid_vec[:, None] / ask_vec[None, :]
@@ -455,3 +523,20 @@ class Portfolio:
         mid_df = pd.DataFrame(mid_matrix, index=currencies, columns=currencies)
 
         return bid_df, ask_df, mid_df
+
+    @staticmethod
+    def asset_lookup(spread_dfs, asset):
+        bid_spread = spread_dfs.bid
+        ask_spread = spread_dfs.ask
+        mid_spread = spread_dfs.mid
+        if '/' in asset:    # Currency lookup
+            base, quote = asset.split('/')
+            bid = bid_spread.at[quote, base]
+            ask = ask_spread.at[quote, base]
+            mid = mid_spread.at[quote, base]
+        else:
+            tic = asset.split('.')[0]
+            bid = spread_dfs.bid.at[tic]
+            ask = spread_dfs.ask.at[tic]
+            mid = spread_dfs.mid.at[tic]
+        return bid, ask, mid

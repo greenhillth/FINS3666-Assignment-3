@@ -65,6 +65,7 @@ def format_market_data(data: pd.Series) -> list[dict]:
     return [{
         'timestamp': data['Timestamp'],
         'asset': a.upper(),
+        'tic': str("USD/") + a.upper(),
         'bid': data[f"{a.upper()} Bid"],
         'ask': data[f"{a.upper()} Ask"],
         'mid': data[f"{a.upper()} Mid"]

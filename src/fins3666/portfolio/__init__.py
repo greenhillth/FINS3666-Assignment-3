@@ -1,3 +1,3 @@
-from .portfolio import Portfolio, AssetDict
+from .portfolio import Portfolio, Order
 
-__all__ = ["Portfolio", "AssetDict"]
+__all__ = ["Portfolio", "Order"]

@@ -33,10 +33,62 @@ def load_market(path):
         pd.DataFrame: The loaded DataFrame with 'Period' column converted to datetime.
     """
     df = pd.read_csv(path)
-    df['Timestamp'] = pd.to_datetime(df['Date'], format='%D/%m/%Y')
-    df.sort_values(by='Date', ascending=True, inplace=True)
-    df['Timestamp'] = df['Period'].dt.to_period('D')
+    df['Timestamp'] = pd.to_datetime(df['Date'], dayfirst=True)
+    df.sort_values(by='Timestamp', ascending=True, inplace=True)
+    df['Period'] = df['Timestamp'].dt.to_period('D')
+    df.drop(columns=['Date'], inplace=True)
     return df
+
+
+def format_market_data(data: pd.Series) -> list[dict]:
+    """
+    Formats market data from a pandas Series into a dictionary.
+
+    Args:
+        data (pd.Series): The market data Series.
+
+    Returns:
+        dict: A dictionary with formatted market data.
+    """
+    if isinstance(data, pd.DataFrame):
+        data = data.iloc[-1]
+
+    def extract_assets(headers: list[str]) -> list[str]:
+        asset_set = set()
+        asset_set = {header.split(' ', 1)[0]
+                     for header in headers if ' ' in header}
+
+        return list(asset_set)
+
+    assetList = extract_assets(data.index.tolist())
+
+    return [{
+        'timestamp': data['Timestamp'],
+        'asset': a.upper(),
+        'bid': data[f"{a.upper()} Bid"],
+        'ask': data[f"{a.upper()} Ask"],
+        'mid': data[f"{a.upper()} Mid"]
+    } for a in assetList]
+
+
+def current_fx_data(fx: pd.DataFrame, timestamp):
+    """
+    Gets the current FX data for a given timestamp.
+    Args:
+        fx (pd.DataFrame): DataFrame containing FX data.
+        timestamp (str): The timestamp for the FX data.
+    Returns:
+        list[dict]: List of dictionaries with formatted FX data.
+    """
+    # convert timestamp to period
+
+    hist = fx[fx['Timestamp'] <= timestamp]
+    row = hist.iloc[-1, :]
+    if row is None:
+        raise ValueError(
+            f"Unable to locate sufficiently accurate FX data for time {timestamp.to_string()}.")
+    # format the corresponding row
+    return format_market_data(row)
 
 
 def getExchangeRate(df, termCurrency, baseCurrency='USD'):
@@ -150,5 +202,5 @@ def write_file(file_path, content):
         file.write(content)
 
 
-__all__ = ["load_dataframe", "getExchangeRate", "currencyUSDvals", "format_currency",
+__all__ = ["load_dataframe", "load_market", "format_market_data", "current_fx_data", "getExchangeRate", "currencyUSDvals", "format_currency",
            "calculate_percentage", "read_file", "write_file"]

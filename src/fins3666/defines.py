@@ -35,7 +35,7 @@ class Order:
     limit: Optional[float] = np.nan
     exchange: Optional[str] = None
     asset_type: Optional[str] = "Currency"
-    order_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    order_id: str = field(default_factory=lambda: str(uuid.uuid1()))
 
     def __post_init__(self):
         if self.units <= 0:
@@ -54,6 +54,32 @@ class Order:
     def sym(self):
         syms = {'CHF': 'SFr.', 'EUR': '€', 'GBP': '£', 'JPY': '¥', 'SEK': 'kr'}
         return syms.get(self.currency, '$')
+
+    def __str__(self) -> str:
+        parts = [
+            f"Order ID: {self.order_id}",
+            f"Asset: {self.asset}",
+            f"Units: {self.units}",
+            f"Order Type: {self.order_type}",
+            f"Order Side: {self.order}",
+            f"Timestamp: {self.timestamp.isoformat()}",
+            f"Currency: {self.currency}",
+            f"Limit Price: {self.limit if not np.isnan(self.limit) else 'N/A'}",
+            f"Expiry: {self.expiry or 'N/A'}",
+            f"Exchange: {self.exchange or 'N/A'}",
+            f"Asset Type: {self.asset_type}",
+        ]
+        return " | ".join(parts)
+
+    def summary_str(self) -> str:
+        limit_part = f" @ {self.limit:.5f}" if not np.isnan(
+            self.limit) else " @ MARKET"
+        return f"{self.order.upper()} {self.units} {self.asset}{limit_part} (ID: {self.order_id[:8]})"
+
+    def log(self, timestamp: datetime, status: str, price: Optional[float] = None) -> str:
+        logmsg = f'{timestamp.isoformat()}: \t Order <{self.order_id}> [{self.summary_str()}] {status.upper()}'
+        logmsg += f' @ {price:.5f}{self.currency}' if price is not None else ''
+        return logmsg
 
 
 __all__ = ['pd', 'np', 'os', 'datetime',

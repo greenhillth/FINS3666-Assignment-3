@@ -1,47 +1,10 @@
 import pandas as pd
 import numpy as np
 import uuid
-from typing import Union, List, Optional, Literal
+from typing import Union, List
 from datetime import datetime
-from dataclasses import dataclass, field
-from collections import namedtuple
 
-AssetSpreads = namedtuple('AssetSpreads', ['bid', 'ask', 'mid'])
-
-
-@dataclass(frozen=True)
-class Order:
-
-    asset: str
-    units: Union[int, float]
-    order: str
-    timestamp: datetime
-
-    currency: Optional[str] = 'USD'
-    order_type: Optional[str] = 'market'
-    expiry: Optional[str] = None
-    limit: Optional[float] = np.nan
-    exchange: Optional[str] = None
-    asset_type: Optional[str] = "Currency"
-    order_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-
-    def __post_init__(self):
-        if self.units <= 0:
-            raise ValueError(
-                "Units must be greater than zero. Specify order='sell' for sale")
-        if self.limit <= 0:
-            raise ValueError("Purchase price must be positive.")
-        if not isinstance(self.timestamp, datetime):
-            raise TypeError("Timestamp must be a datetime object.")
-        if self.order_type == 'limit' and np.isnan(self.limit):
-            raise ValueError("No limit specified for limit order")
-
-    def tic(self):
-        return f'{self.asset}/{self.currency}' if self.asset_type == "Currency" else f'{self.asset}.{self.exchange}'
-
-    def sym(self):
-        syms = {'CHF': 'SFr.', 'EUR': '€', 'GBP': '£', 'JPY': '¥', 'SEK': 'kr'}
-        return syms.get(self.currency, '$')
+from fins3666.defines import Order, AssetSpreads
 
 
 class Portfolio:
@@ -87,6 +50,7 @@ class Portfolio:
         self.forex_spreads = AssetSpreads(None, None, None)
 
         self.orders = []
+        self.trade_log = []
 
     def new_order(self, order: Order):
         self.orders.append(order)
@@ -95,25 +59,38 @@ class Portfolio:
         self.process_orders(timestamp)
 
     def process_orders(self, timestamp: datetime):
-        cancelled = []
-        executed = []
         remaining = []
         for order in self.orders:
             bid, ask, mid = self.asset_lookup(self.forex_spreads, order.tic())
             if order.expiry is not None and order.expiry < timestamp:
-                cancelled.append(order)
+                self.trade_log.append(
+                    order.log(timestamp=timestamp, status='cancelled'))
+                print(order.log(timestamp=timestamp, status='cancelled'))
             elif order.order_type == 'market':
+                price = mid
                 if order.order == 'buy':
-                    self.execute_trade(order, ask)
+                    price = ask
+                    self.execute_trade(order, price)
                 elif order.order == 'sell':
-                    self.execute_trade(order, bid)
-                executed.append(order)
+                    price = bid
+                    self.execute_trade(order, price)
+                self.trade_log.append(
+                    order.log(timestamp=timestamp, status='executed', price=price))
+                print(order.log(timestamp=timestamp,
+                      status='executed', price=price))
             elif order.order_type == 'limit':
                 if order.order == 'buy' and ask <= order.limit:
                     self.execute_trade(order, ask)
+                    self.trade_log.append(
+                        order.log(timestamp=timestamp, status='executed', price=ask))
+                    print(order.log(timestamp=timestamp,
+                                    status='executed', price=ask))
                 elif order.order == 'sell' and bid >= order.limit:
                     self.execute_trade(order, bid)
-                executed.append(order)
+                    self.trade_log.append(
+                        order.log(timestamp=timestamp, status='executed', price=bid))
+                    print(order.log(timestamp=timestamp,
+                                    status='executed', price=bid))
             else:
                 remaining.append(order)
 

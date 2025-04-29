@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import datetime
 
 """
 helpers.py
@@ -9,22 +10,6 @@ This module contains utility functions to assist with common tasks in the projec
 
 
 def load_dataframe(path):
-    """
-    Loads a CSV file into a pandas DataFrame and converts the 'Period' column to datetime.
-    Args:
-        path (str): Relative path to CSV file.
-    Returns:
-        pd.DataFrame: The loaded DataFrame with 'Period' column converted to datetime.
-    """
-    df = pd.read_csv(path)
-    df['Period'] = pd.to_datetime(df['Period'], format='%m/%Y')
-    df.sort_values(by='Period', ascending=True, inplace=True)
-    df['Period'] = df['Period'].dt.to_period('M')
-    df.set_index('Period', inplace=True)
-    return df
-
-
-def load_market(path):
     """
     Loads a CSV file into a pandas DataFrame and converts the 'Date' column to datetime.
     Args:
@@ -37,6 +22,7 @@ def load_market(path):
     df.sort_values(by='Timestamp', ascending=True, inplace=True)
     df['Period'] = df['Timestamp'].dt.to_period('D')
     df.drop(columns=['Date'], inplace=True)
+    df.reset_index(drop=True)
     return df
 
 
@@ -72,7 +58,7 @@ def format_market_data(data: pd.Series) -> list[dict]:
     } for a in assetList]
 
 
-def current_fx_data(fx: pd.DataFrame, timestamp):
+def current_fx_data(fx: pd.DataFrame, timestamp: datetime):
     """
     Gets the current FX data for a given timestamp.
     Args:
@@ -81,15 +67,12 @@ def current_fx_data(fx: pd.DataFrame, timestamp):
     Returns:
         list[dict]: List of dictionaries with formatted FX data.
     """
-    # convert timestamp to period
-
     hist = fx[fx['Timestamp'] <= timestamp]
-    row = hist.iloc[-1, :]
-    if row is None:
+    if hist.empty:
         raise ValueError(
-            f"Unable to locate sufficiently accurate FX data for time {timestamp.to_string()}.")
+            f"Unable to locate sufficiently accurate FX data for time {timestamp}.")
     # format the corresponding row
-    return format_market_data(row)
+    return format_market_data(hist.iloc[-1, :])
 
 
 def getExchangeRate(df, termCurrency, baseCurrency='USD'):
@@ -203,5 +186,5 @@ def write_file(file_path, content):
         file.write(content)
 
 
-__all__ = ["load_dataframe", "load_market", "format_market_data", "current_fx_data", "getExchangeRate", "currencyUSDvals", "format_currency",
+__all__ = ["load_dataframe", "format_market_data", "current_fx_data", "getExchangeRate", "currencyUSDvals", "format_currency",
            "calculate_percentage", "read_file", "write_file"]

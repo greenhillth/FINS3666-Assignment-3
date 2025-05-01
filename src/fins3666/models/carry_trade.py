@@ -82,7 +82,8 @@ def generate_orders(yields, current_positions, fx):
             if remainingUnits < 0:
                 soldQuoteUnits = units/fx.ask.at[base, quote]
                 amt = amt - soldQuoteUnits
-                orders.append(Order(base, units, 'sell', timestamp, quote))
+                orders.append(Order(base, round(units, 4),
+                              'sell', timestamp, quote))
                 sell.pop(0)
                 if sell:
                     base = sell[0][0]
@@ -90,13 +91,16 @@ def generate_orders(yields, current_positions, fx):
                 else:
                     base = None
             else:
-                orders.append(Order(base, sellUnits, 'sell', timestamp, quote))
+                if (round(sellUnits, 4)) > 0:
+                    orders.append(Order(base, round(sellUnits, 4),
+                                        'sell', timestamp, quote))
                 sell[0] = (base, remainingUnits)
                 base = None
 
     for quote, units in sell:
-
-        orders.append(Order(quote, abs(units), 'sell', timestamp, 'USD'))
+        if (round(abs(units), 4)) > 0:
+            orders.append(Order(quote, round(abs(units), 4),
+                                'sell', timestamp, 'USD'))
     return orders
 
 

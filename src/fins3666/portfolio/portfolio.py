@@ -59,7 +59,7 @@ class Portfolio:
         self.t_log.setLevel(logging.INFO)
 
         if not self.t_log.handlers:
-            file_handler = logging.FileHandler("trades.log", mode='a')
+            file_handler = logging.FileHandler("trades.log", mode='w')
             formatter = logging.Formatter('%(asctime)s - %(message)s')
             file_handler.setFormatter(formatter)
             self.t_log.addHandler(file_handler)
@@ -91,6 +91,8 @@ class Portfolio:
     def process_orders(self, timestamp: datetime):
         remaining = []
         for order in self.orders:
+            if (order.asset == order.currency):
+                continue
             bid, ask, mid = self.asset_lookup(self.forex_spreads, order.tic())
             if order.expiry is not None and order.expiry < timestamp:
                 self.trade_log.append(
@@ -123,14 +125,14 @@ class Portfolio:
         msg = str()
         if order.order == 'buy':
             msg += (
-                f'Executed {order.order_type} buy order of {order.units} units of {order.asset}'
-                f' for {order.currency}{order.sym()}{price:,.4f} per unit.'
+                f'Executed {order.order_type} buy order of {order.units:>18,.4f} units of {order.asset}'
+                f' for {order.currency} {order.sym():>4}{price:,.4f} per unit.'
                 f' Transaction cost: {order.sym()}{(order.units*price):,.2f}'
             )
         else:
             msg += (
-                f'Executed {order.order_type} {order.order} order of {order.units} units of {order.asset}'
-                f' for {order.currency}{order.sym()}{price:,.4f} per unit.'
+                f'Executed {order.order_type} sell order of {order.units:>18,.4f} units of {order.asset}'
+                f' for {order.currency} {order.sym():>4}{price:,.4f} per unit.'
                 f' Transaction gain: {order.sym()}{(order.units*price):,.2f}'
             )
         self.t_log.info(msg)

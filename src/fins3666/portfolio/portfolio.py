@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import uuid
+import logging
 from typing import Union, List
 from datetime import datetime, timedelta
 
@@ -21,6 +22,7 @@ class Portfolio:
             >>> portfolio = Portfolio(timestamp=datetime(2020,09,1), starting_balance=[{
             >>>     "asset": "USD",
             >>>     "units": 12000,
+            >>>     "yield": 2,
             >>>     "unit_value_USD": 1},
             >>>     {
             >>>     "asset": "AUD",
@@ -53,6 +55,15 @@ class Portfolio:
         self.orders = []
         self.trade_log = []
 
+        self.t_log = logging.getLogger("TradeLogger")
+        self.t_log.setLevel(logging.INFO)
+
+        if not self.t_log.handlers:
+            file_handler = logging.FileHandler("trades.log", mode='a')
+            formatter = logging.Formatter('%(asctime)s - %(message)s')
+            file_handler.setFormatter(formatter)
+            self.t_log.addHandler(file_handler)
+
         self.timestamp = timestamp
 
     def new_order(self, order: Order):
@@ -65,11 +76,15 @@ class Portfolio:
     def _index_positions(self, newTime):
         deltaYears = (newTime - self.timestamp).days/365.25
 
+        self.ledger.at['USD', 'Units'] -= 12*1e6
+
         self.ledger['Units'] = self.ledger.apply(
             lambda row: row['Units'] * ((row['YieldPA']) * deltaYears +
                                         1) if abs(row['YieldPA']) != 0 else row['Units'],
             axis=1
         )
+
+        self.ledger.at['USD', 'Units'] += 12*1e6
 
         self.timestamp = newTime
 
@@ -80,7 +95,6 @@ class Portfolio:
             if order.expiry is not None and order.expiry < timestamp:
                 self.trade_log.append(
                     order.log(timestamp=timestamp, status='cancelled'))
-                print(order.log(timestamp=timestamp, status='cancelled'))
             elif order.order_type == 'market':
                 price = mid
                 if order.order == 'buy':
@@ -91,21 +105,15 @@ class Portfolio:
                     self.execute_trade(order, price, timestamp)
                 self.trade_log.append(
                     order.log(timestamp=timestamp, status='executed', price=price))
-                print(order.log(timestamp=timestamp,
-                      status='executed', price=price))
             elif order.order_type == 'limit':
                 if order.order == 'buy' and ask <= order.limit:
                     self.execute_trade(order, ask, timestamp)
                     self.trade_log.append(
                         order.log(timestamp=timestamp, status='executed', price=ask))
-                    print(order.log(timestamp=timestamp,
-                                    status='executed', price=ask))
                 elif order.order == 'sell' and bid >= order.limit:
                     self.execute_trade(order, bid, timestamp)
                     self.trade_log.append(
                         order.log(timestamp=timestamp, status='executed', price=bid))
-                    print(order.log(timestamp=timestamp,
-                                    status='executed', price=bid))
             else:
                 remaining.append(order)
 
@@ -125,7 +133,7 @@ class Portfolio:
                 f' for {order.currency}{order.sym()}{price:,.4f} per unit.'
                 f' Transaction gain: {order.sym()}{(order.units*price):,.2f}'
             )
-        print(msg)
+        self.t_log.info(msg)
 
         self._add_trade(order=order, price=price, timestamp=timestamp)
 
@@ -188,13 +196,14 @@ class Portfolio:
         Builds a portfolio snapshot by getting current market values of assets from the ledger.
         """
 
-        fx = self.forex_spreads.mid['USD']
+        fx = self.forex_spreads
         summary_df = pd.DataFrame([
             {
                 'Asset': asset,
                 'Units': row['Units'],
-                'USD Unit Val': 1/fx.get(asset, 0),
-                'USD Total Val': row['Units'] / fx.get(asset, 0),
+                'USD Unit Val': 1/fx.mid['USD'].get(asset, 1),
+                'Liquidation Value': fx.bid.at['USD', asset] * row['Units'] if row['Units'] > 0 else fx.ask.at['USD', asset] * row['Units'],
+                'USD Total Val': row['Units'] / fx.mid['USD'].get(asset, 0),
                 'Yield': row['YieldPA']
             }
             for asset, row in self.ledger.iterrows()])
@@ -223,6 +232,7 @@ class Portfolio:
                 A single asset dictionary or a list of asset dictionaries containing:
                     - 'name' (str): asset name or identifier
                     - 'units' (np.float64): quantity of asset held
+                    - 'yield' (np.float64): p.a return
                     - 'timestamp' (datetime): time of asset acquisition
         Returns:
             pd.DataFrame: DataFrame representing the ledger.
@@ -233,7 +243,7 @@ class Portfolio:
             df = pd.DataFrame([{
                 'Asset': d['asset'],
                 'Units': d['units'],
-                'YieldPA': 0.0,
+                'YieldPA': 1,
                 'TransactionIdxs': []}
                 for d in startingBal])
         else:
@@ -385,7 +395,6 @@ class Portfolio:
         """
         if asset in self.ledger.index:
             self.ledger.at[asset, 'Units'] += units
-            print(f'Incremented {asset} by {units}')
             self.ledger.at[asset, 'YieldPA'] = 0
             self.ledger.at[asset, 'TransactionIdxs'].append(tradeID)
         else:
@@ -394,7 +403,6 @@ class Portfolio:
                 'YieldPA': 0.0,
                 'TransactionIdxs': [tradeID]
             }
-            print(f'Incremented {asset} by {units}')
         if 1e-6 > np.fabs(self.ledger.at[asset, 'Units']):
             self.ledger.at[asset, 'Units'] = 0
         elif self.ledger.at[asset, 'Units'] > 0:

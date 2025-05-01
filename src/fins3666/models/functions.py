@@ -45,4 +45,4 @@ def run(strategy, data):
     return execute_strategy(strategy, data)
 
 
-__all__ = [""]
+__all__ = ["execute_strategy"]

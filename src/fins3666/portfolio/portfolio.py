@@ -2,14 +2,14 @@ import pandas as pd
 import numpy as np
 import uuid
 from typing import Union, List
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fins3666.defines import Order, AssetSpreads
 
 
 class Portfolio:
 
-    def __init__(self, timestamp: datetime, balance: Union[dict, List[dict]]):
+    def __init__(self, timestamp: datetime, balance: Union[dict, List[dict]], fx_data: None):
         """
         Initialize a Portfolio.
 
@@ -42,21 +42,36 @@ class Portfolio:
         self.alpha = None
 
         # Create Position Ledger with initial balance, if supplied
-        self.ledger = self._build_ledger_df(timestamp, balance)
+        self.ledger = self._build_ledger_df(balance)
         # Create transaction record
         self.trades = self._build_trade_df()
-        # Create empty market data
-        self.mkt = self._build_mkt_df()
+        # Create forex data
+
         self.forex_spreads = AssetSpreads(None, None, None)
+        self.updateMarketData(fx_data)
 
         self.orders = []
         self.trade_log = []
+
+        self.timestamp = timestamp
 
     def new_order(self, order: Order):
         self.orders.append(order)
 
     def update(self, timestamp: datetime):
+        self._index_positions(timestamp)
         self.process_orders(timestamp)
+
+    def _index_positions(self, newTime):
+        deltaYears = (newTime - self.timestamp).days/365.25
+
+        self.ledger['Units'] = self.ledger.apply(
+            lambda row: row['Units'] * ((row['YieldPA']) * deltaYears +
+                                        1) if abs(row['YieldPA']) != 0 else row['Units'],
+            axis=1
+        )
+
+        self.timestamp = newTime
 
     def process_orders(self, timestamp: datetime):
         remaining = []
@@ -70,23 +85,23 @@ class Portfolio:
                 price = mid
                 if order.order == 'buy':
                     price = ask
-                    self.execute_trade(order, price)
+                    self.execute_trade(order, price, timestamp)
                 elif order.order == 'sell':
                     price = bid
-                    self.execute_trade(order, price)
+                    self.execute_trade(order, price, timestamp)
                 self.trade_log.append(
                     order.log(timestamp=timestamp, status='executed', price=price))
                 print(order.log(timestamp=timestamp,
                       status='executed', price=price))
             elif order.order_type == 'limit':
                 if order.order == 'buy' and ask <= order.limit:
-                    self.execute_trade(order, ask)
+                    self.execute_trade(order, ask, timestamp)
                     self.trade_log.append(
                         order.log(timestamp=timestamp, status='executed', price=ask))
                     print(order.log(timestamp=timestamp,
                                     status='executed', price=ask))
                 elif order.order == 'sell' and bid >= order.limit:
-                    self.execute_trade(order, bid)
+                    self.execute_trade(order, bid, timestamp)
                     self.trade_log.append(
                         order.log(timestamp=timestamp, status='executed', price=bid))
                     print(order.log(timestamp=timestamp,
@@ -96,7 +111,7 @@ class Portfolio:
 
         self.orders = remaining
 
-    def execute_trade(self, order, price):
+    def execute_trade(self, order, price, timestamp):
         msg = str()
         if order.order == 'buy':
             msg += (
@@ -112,7 +127,9 @@ class Portfolio:
             )
         print(msg)
 
-    def updateMarketData(self, currentData: Union[dict, List[dict]]):
+        self._add_trade(order=order, price=price, timestamp=timestamp)
+
+    def updateMarketData(self, currentData: Union[None, dict, List[dict]], yields=None):
         """
         Updates the market data for the portfolio.
 
@@ -130,6 +147,9 @@ class Portfolio:
         Returns:
             None
         """
+        if currentData is None:
+            return
+
         if isinstance(currentData, dict):
             currentData = [currentData]
 
@@ -161,49 +181,25 @@ class Portfolio:
 
         fx_df = pd.concat([usd_row, fx_df], ignore_index=True)
         self.forex_spreads = AssetSpreads(*Portfolio.buildForexMatrix(fx_df))
+        self.yields = yields
 
     def summary(self):
         """
         Builds a portfolio snapshot by getting current market values of assets from the ledger.
-
-        Returns:
-            pd.DataFrame: DataFrame containing the current portfolio values.
         """
 
-        # Filter out closed positions
-        summary = self.ledger[self.ledger['Open']].copy()
-        if summary.empty:
-            return pd.DataFrame()
+        fx = self.forex_spreads.mid['USD']
+        summary_df = pd.DataFrame([
+            {
+                'Asset': asset,
+                'Units': row['Units'],
+                'USD Unit Val': 1/fx.get(asset, 0),
+                'USD Total Val': row['Units'] / fx.get(asset, 0),
+                'Yield': row['YieldPA']
+            }
+            for asset, row in self.ledger.iterrows()])
 
-        # Merge ledger with latest market data for each asset
-        summary = summary.merge(
-            self.mkt,
-            left_on='Asset',
-            right_index=True,
-            how='left')
-
-        summary['PurchaseCost'] = -summary['Units'] * summary['UnitWAP']
-
-        summary['CurrentUnitVal'] = summary['Mid']
-        summary['CurrentAssetValue'] = summary['CurrentUnitVal'] * \
-            summary['Units']
-
-        summary['Size'] = summary['Units'].abs()
-        summary['Position'] = np.select([summary['Units'] > 0, summary['Units'] < 0],
-                                        ['Long', 'Short'], default='None')
-        total_value = summary['CurrentAssetValue'].sum(skipna=True)
-        summary['Weight'] = np.where(
-            total_value != 0, summary['CurrentAssetValue'] / total_value, 0)
-
-        # Sort Columns
-        columns_to_keep = [
-            'Asset', 'Units', 'UnitWAP', 'PurchaseCost', 'CurrentUnitVal',
-            'CurrentAssetValue', 'Size', 'Position', 'Weight', 'AssetType',
-            'OpenTimestamp', 'UpdateTimestamp'
-        ]
-        summary = summary[columns_to_keep]
-
-        return summary
+        return summary_df
 
     def to_string(self):
         """
@@ -219,7 +215,7 @@ class Portfolio:
 
     """Private methods for Portfolio class"""
 
-    def _build_ledger_df(self, timestamp, startingBal: Union[None, dict, List[dict]]):
+    def _build_ledger_df(self, startingBal: Union[None, dict, List[dict]]):
         """
         Builds the internal pandas DataFrame representing the ledger containing all open and closed positions.
         Args:
@@ -227,7 +223,6 @@ class Portfolio:
                 A single asset dictionary or a list of asset dictionaries containing:
                     - 'name' (str): asset name or identifier
                     - 'units' (np.float64): quantity of asset held
-                    - 'purchase_price' (np.float64): price per unit
                     - 'timestamp' (datetime): time of asset acquisition
         Returns:
             pd.DataFrame: DataFrame representing the ledger.
@@ -236,31 +231,19 @@ class Portfolio:
             if isinstance(startingBal, dict):
                 startingBal = [startingBal]
             df = pd.DataFrame([{
-                'OpenTimestamp': timestamp,
-                'UpdateTimestamp': timestamp,
                 'Asset': d['asset'],
                 'Units': d['units'],
-                'UnitWAP': d['unit_value_USD'],
-                'UnitLastPrice': d['unit_value_USD'],
-                'TransactionIdxs': [],
-                'AssetType': 'Currency',
-                'PositionUSD': d['units']*d['unit_value_USD'],
-                'CloseTimestamp': None,
-                'Open': True}
+                'YieldPA': 0.0,
+                'TransactionIdxs': []}
                 for d in startingBal])
         else:
             df = pd.DataFrame({
-                'OpenTimestamp': pd.Series(dtype='datetime64[ns]'),
-                'UpdateTimestamp': pd.Series(dtype='datetime64[ns]'),
                 'Asset': pd.Series(dtype='str'),
                 'Units': pd.Series(dtype='float64'),
-                'UnitWAP': pd.Series(dtype='float64'),
-                'UnitLastPrice': pd.Series(dtype='float64'),
-                'TransactionIdxs': pd.Series(dtype='object'),
-                'AssetType': pd.Series(dtype='str'),
-                'PositionUSD': pd.Series(dtype='float64'),
-                'CloseTimestamp': pd.Series(dtype='datetime64[ns]'),
-                'Open': pd.Series(dtype='bool')})
+                'YieldPA': pd.Series(dtype='float64'),
+                'TransactionIdxs': pd.Series(dtype='object')})
+
+        df.set_index('Asset', inplace=True)
 
         return df
 
@@ -315,65 +298,6 @@ class Portfolio:
         df.set_index('ID', inplace=True)
         return df
 
-    def _update_ledger(self, transaction_id, timestamp, asset, units, unit_price_usd, order_value_usd, asset_type):
-        """
-        Update the position ledger with details of trade. Should only be called by the add_trade method.
-        Args:
-            transaction_id (int): Unique identifier for the transaction.
-            timestamp (datetime): Time of the transaction.
-            asset (str): Asset identifier.
-            units (float): Number of units acquired or sold.
-            unit_price_usd (float): Price per unit in USD.
-            order_value_usd (float): Total value of the order in USD.
-            asset_type (str): Type of asset (e.g., 'stock', 'bond', etc.).
-        Example:
-            >>> portfolio._update_ledger(0, datetime.now(), "BTC", 2.0, 30000, 60000, "Crypto")
-        Returns:
-            None
-        """
-        '''
-        {
-                'OpenTimestamp': timestamp,
-                'UpdateTimestamp': timestamp,
-                'Asset': d['asset'],
-                'Units': d['units'],
-                'UnitWAP': d['unit_value_USD'],
-                'UnitLastPrice': d['unit_value_USD'],
-                'TransactionIdxs': [],
-                'AssetType': 'Currency',
-                'PositionUSD': d['units']*d['unit_value_USD'],
-                'CloseTimestamp': None,
-                'Open': True}
-
-        '''
-
-        # Check if open position for asset already exists
-        existing_asset = self.ledger[self.ledger['Asset'] == asset]
-        if not existing_asset.empty and existing_asset['Open'].values[0]:
-            # Update existing asset entry
-            idx = existing_asset.index[0]
-
-            existingUnits = self.ledger.loc[idx, 'Units']
-            newUnits = existingUnits + units
-            newUnits = 0 if (abs(newUnits) < 1e-6) else newUnits
-            self.ledger.at[idx, 'UpdateTimestamp'] = timestamp
-
-            self.ledger.at[idx, 'Units'] = newUnits
-            self.ledger.at[idx, 'UnitWAP'] = (
-                self.ledger.loc[idx, 'UnitWAP'] * existingUnits + order_value_usd)/newUnits
-            self.ledger.at[idx, 'UnitLastPrice'] = unit_price_usd
-            self.ledger.at[idx, 'TransactionIdxs'].append(transaction_id)
-            self.ledger.at[idx, 'AssetType'] = asset_type
-            if newUnits == 0:  # maybe implement a close position function instead??
-                self.ledger.at[idx, 'CloseTimestamp'] = timestamp
-                self.ledger.at[idx, 'Open'] = False
-        else:
-            self.ledger = self.ledger.append(
-                {'OpenTimestamp': timestamp, 'UpdateTimestamp': timestamp,
-                 'Asset': asset, 'Units': units, 'UnitWAP': unit_price_usd, 'UnitLastPrice': unit_price_usd, 'TransactionIdxs': [transaction_id],
-                 'AssetType': asset_type, 'CloseTimestamp': None, 'Open': True},
-                ignore_index=True)
-
     def _add_trade(self, timestamp: datetime, order: Order, price):
         """
         Appends an executed order to the trades record and updates the internal ledger.
@@ -406,49 +330,110 @@ class Portfolio:
             None
         """
         id = str(uuid.uuid1())
-        asset = order.asset
-        typ = order.order
-        units = order.units
-        unit_price = price
-        currency = order.curr
-        order_value = units * unit_price
-        bal = -order_value if typ == 'buy' else order_value
-        forecast_return = 0.0
-        i_usd = 0.0
-        order_type = order.order_type
-        exchange = order.exchange
-        asset_type = order.get('asset_type', 'Currency')
 
-        trade = pd.DataFrame([{'Timestamp': timestamp, 'Asset': asset, 'Buy/Sell': typ, 'Units': units, 'UnitPrice': unit_price, 'Balance': bal, 'BaseCurrency': currency,
-                               'OrderValue': order_value, 'ForecastReturn': forecast_return, 'i_USD': i_usd,
-                               'OrderType': order_type, 'Exchange': exchange, 'AssetType': asset_type}], index=[id])
+        '''
+            trade is just an increase of one asset for a decrease of another
+
+            order units is in terms of order.asset (i.e Order(order='buy', asset='JPY', units=100, currency='USD'), price=0.1)
+            means an increase of 100 units of JPY corresponds to a decrease of price*100 units of USD 
+
+            conversely (Order(order='sell', asset='JPY', units=50, currency='USD'), price=0.09) would correspond with a decrease
+            of 50 units of JPY and an increase of price*50 units of USD
+
+            This function needs to adjust the position ledger to account for these increases and decreases
+        '''
+
+        # TODO - consolodate after debugging
+        if order.order == 'buy':
+            buyunits = order.units
+            sellunits = -order.units*price
+            self._update_ledger(order.asset, buyunits, id,
+                                self._yields(order.asset))
+            self._update_ledger(order.currency, sellunits,
+                                id, self._yields(order.currency))
+        elif order.order == 'sell':
+            sellunits = -order.units
+            buyunits = order.units*price
+            self._update_ledger(order.asset, sellunits, id,
+                                self._yields(order.asset))
+            self._update_ledger(order.currency, buyunits,
+                                id, self._yields(order.currency))
+        units = order.units
+
+        trade = pd.DataFrame([{'Timestamp': timestamp, 'Asset': order.asset, 'Units': units, 'UnitPrice': price, 'BaseCurrency': order.currency,
+                               'OrderValue': units*price, 'OrderType': order.order, 'Exchange': order.exchange, 'AssetType': order.asset_type}], index=[id])
 
         self.trades = pd.concat([self.trades, trade], ignore_index=True)
-        self._update_ledger(order)
+
+    def _yields(self, asset):
+        if self.yields is None:
+            return (0, 0)
+
+        yields = self.yields[[f'{asset} SHORT', f'{asset} LONG']].iloc[-1]
+        return tuple(yields/100)
+
+    def _update_ledger(self, asset, units, tradeID, yield_pa=(0, 0)):
+        """
+        Update the position ledger with details of trade. Should only be called by the add_trade method.
+        Args:
+            asset (str): Asset identifier.
+            units (float): Units to add/remove from asset
+            transaction_id (int): Unique identifier for the transaction.
+            yield_pa (Tuple(float)): Two - element tuple containing [LONG, SHORT] return profiles (i.e holding and borrowing costs).
+        Returns:
+            None
+        """
+        if asset in self.ledger.index:
+            self.ledger.at[asset, 'Units'] += units
+            print(f'Incremented {asset} by {units}')
+            self.ledger.at[asset, 'YieldPA'] = 0
+            self.ledger.at[asset, 'TransactionIdxs'].append(tradeID)
+        else:
+            self.ledger.loc[asset] = {
+                'Units': units,
+                'YieldPA': 0.0,
+                'TransactionIdxs': [tradeID]
+            }
+            print(f'Incremented {asset} by {units}')
+        if 1e-6 > np.fabs(self.ledger.at[asset, 'Units']):
+            self.ledger.at[asset, 'Units'] = 0
+        elif self.ledger.at[asset, 'Units'] > 0:
+            self.ledger.at[asset, 'YieldPA'] = yield_pa[0]
+        elif self.ledger.at[asset, 'Units'] < 0:
+            self.ledger.at[asset, 'YieldPA'] = yield_pa[1]
 
     """Namespace methods for Portfolio class"""
 
     def __str__(self):
         df = self.summary()
-        out = f"\n\n{str('Portfolio Overview'):^80}" + "\n"
-        out += "=" * 80 + "\n"
-        out += f"{'Asset':<10}{'Units':>9}{'Unit Value':>18}{'Asset Value':>15}{'Position':>15}{'Weight':>10}\n"
-        out += "=" * 80 + "\n"
+        linewidth = 100
+
+        totalValue = df['USD Total Val'].sum()
+
+        df['Weight'] = df['USD Total Val']/totalValue
+
+        out = f"\n\n{str('Portfolio Overview'):^100}" + "\n"
+        out += "=" * linewidth + "\n"
+        out += f"{'Asset':<9}{'Value':<11}{'Units':<15}{'Total Value (USD)':<28}{'Position':<15}{'Yield p.a':<15}{'Weight':<6}\n"
+        out += "=" * linewidth + "\n"
         for asset, row in df.iterrows():
             out += (
-                f"{asset:<10}"
-                f"{row['Size']:>10.2f}"
-                f"{f'${row['UnitWAP']:,.2f}':>15}"
-                f"{f'${row['CurrentAssetValue']:,.2f}':>15}"
-                f"{str(row['Position']):>15}"
-                f"{row['Weight']:>10.2%}\n"
+                f"{str(row['Asset']):<7}"
+                f"{f'${row['USD Unit Val']:,.2f}':>7}"
+                f"{abs(row['Units']):>14,.0f}"
+                f"{'-$' if row['USD Total Val'] < 0 else '$':>6}"
+                f"{f'{abs(row['USD Total Val']):,.2f}':>18}"
+                "          "
+                f"{'Short' if row['Units'] < 0 else 'Long':>7}"
+                f"{row['Yield']:>16.2%}"
+                f"{row['Weight']:>13.2%}\n"
             )
         out += f"\nPortfolio - {len(df)} assets\n"
-        out += f"Unit Price Timestamp: {df['UpdateTimestamp'].max()},\n"
-        out += f"Net Value ($USD): ${df['CurrentAssetValue'].sum(skipna=True):,.2f}"
+        out += f"Timestamp: {self.timestamp},\n"
+        out += f"Net Value ($USD): ${totalValue:,.2f}"
 
         # get sum of
-        return out
+        return str(out)
 
     def __repr__(self):
         return f"{len(self.assets)} Asset, USD${self.total_value:,.2f} Nominal Value Portfolio Object"
@@ -472,7 +457,6 @@ class Portfolio:
             7  NOK 2023-01-02    9.848000    9.854000    9.850985
             8  GBP 2023-01-02    0.831186    0.831463    0.831324
             9  AUD 2023-01-02    1.474274    1.474926    1.474603
-            currencies (list): List of currency codes to include in the matrix. Defaults to G10 list.
         Returns:
             tuple: A tuple containing three DataFrames: bid matrix, ask matrix, and mid matrix.
         """
@@ -480,14 +464,6 @@ class Portfolio:
         bid_vec = df.loc[:, 'bid'].to_numpy()
         ask_vec = df.loc[:, 'ask'].to_numpy()
         mid_vec = df.loc[:, 'mid'].to_numpy()
-
-        # # Initialize bid/ask/mid vectors
-        # bid_vec = np.array([pow.get(f"{currency} Bid", 1.0)
-        #                    for currency in currencies])
-        # ask_vec = np.array([row.get(f"{currency} Ask", 1.0)
-        #                    for currency in currencies])
-        # mid_vec = np.array([row.get(f"{currency} Mid", 1.0)
-        #                    for currency in currencies])
 
         # Vectorized outer division
         bid_matrix = bid_vec[:, None] / ask_vec[None, :]

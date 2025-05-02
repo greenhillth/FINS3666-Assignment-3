@@ -1,29 +1,11 @@
 import pandas as pd
-import numpy as np
 import datetime
 
 """
-helpers.py
+functions.py
 
 This module contains utility functions to assist with common tasks in the project.
 """
-
-
-def load_dataframe(path):
-    """
-    Loads a CSV file into a pandas DataFrame and converts the 'Date' column to datetime.
-    Args:
-        path (str): Relative path to CSV file.
-    Returns:
-        pd.DataFrame: The loaded DataFrame with 'Period' column converted to datetime.
-    """
-    df = pd.read_csv(path)
-    df['Timestamp'] = pd.to_datetime(df['Date'], dayfirst=True)
-    df.sort_values(by='Timestamp', ascending=True, inplace=True)
-    df['Period'] = df['Timestamp'].dt.to_period('D')
-    df.drop(columns=['Date'], inplace=True)
-    df.reset_index(drop=True)
-    return df
 
 
 def format_market_data(data: pd.Series) -> list[dict]:
@@ -141,50 +123,5 @@ def format_currency(value):
     return "${:,.2f}".format(value)
 
 
-def calculate_percentage(part, whole):
-    """
-    Calculates the percentage of a part relative to the whole.
-
-    Args:
-        part (float): The numerator value.
-        whole (float): The denominator value.
-
-    Returns:
-        float: The percentage value.
-    """
-    if whole == 0:
-        return 0
-    return (part / whole) * 100
-
-
-def read_file(file_path):
-    """
-    Reads the content of a file and returns it as a string.
-
-    Args:
-        file_path (str): The path to the file.
-
-    Returns:
-        str: The content of the file.
-    """
-    with open(file_path, 'r') as file:
-        return file.read()
-
-
-def write_file(file_path, content):
-    """
-    Writes content to a file.
-
-    Args:
-        file_path (str): The path to the file.
-        content (str): The content to write.
-
-    Returns:
-        None
-    """
-    with open(file_path, 'w') as file:
-        file.write(content)
-
-
-__all__ = ["load_dataframe", "format_market_data", "current_fx_data", "getExchangeRate", "currencyUSDvals", "format_currency",
-           "calculate_percentage", "read_file", "write_file"]
+__all__ = ["format_market_data", "current_fx_data",
+           "getExchangeRate", "currencyUSDvals", "format_currency"]

@@ -21,6 +21,28 @@ BORROWING_COST_PM = (1+BORROWING_COST_PA) ** (1/12) - 1
 AssetSpreads = namedtuple('AssetSpreads', ['bid', 'ask', 'mid'])
 
 
+def load_dataframe(path):
+    """
+    Loads a CSV file into a pandas DataFrame and converts the 'Date' column to datetime.
+    Args:
+        path (str): Relative path to CSV file.
+    Returns:
+        pd.DataFrame: The loaded DataFrame with 'Period' column converted to datetime.
+    """
+    df = pd.read_csv(path)
+    df['Timestamp'] = pd.to_datetime(df['Date'], dayfirst=True)
+    df.sort_values(by='Timestamp', ascending=True, inplace=True)
+    df['Period'] = df['Timestamp'].dt.to_period('D')
+    df.drop(columns=['Date'], inplace=True)
+    df.reset_index(drop=True)
+    return df
+
+
+fx = load_dataframe(os.path.join(DIR_DATA_RAW, 'fx-historical-daily.csv'))
+mkt = load_dataframe(os.path.join(DIR_DATA_RAW, 'rates-historical-daily.csv'))
+benchmarks = load_dataframe(os.path.join(DIR_DATA_RAW, 'benchmarks.csv'))
+
+
 @dataclass(frozen=True)
 class Order:
 
@@ -82,6 +104,24 @@ class Order:
         return logmsg
 
 
+def index_inflation(value, timestamp):
+    cpi = benchmarks.loc[benchmarks['Timestamp']
+                         <= timestamp, 'CPI'].tail(1)
+    multiplier = cpi.values[0]/100 + 1
+    return value*multiplier
+
+
+def index_benchmark(value, timestamp):
+    benchmark = benchmarks.loc[benchmarks['Timestamp']
+                               <= timestamp, ['SP500', 'CPI']].tail(1)
+    cpi = benchmark['CPI'].values[0]
+    indx = benchmark['SP500'].values[0]
+    multiplier = cpi if cpi > indx else indx
+    return value*(multiplier/100+1)
+
+
 __all__ = ['pd', 'np', 'os', 'datetime',
+           'fx', 'mkt', 'benchmarks',
            'DIR_DATA_RAW', 'DIR_DATA_PROCESSED', 'DIR_OUT', 'ACCOUNT_SIZE_USD',
-           'AssetSpreads', 'Order']
+           'AssetSpreads', 'Order',
+           'index_inflation', 'index_benchmark']

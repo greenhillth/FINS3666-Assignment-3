@@ -74,17 +74,13 @@ class Portfolio:
         self.process_orders(timestamp)
 
     def _index_positions(self, newTime):
+
         deltaYears = (newTime - self.timestamp).days/365.25
-
-        self.ledger.at['USD', 'Units'] -= 12*1e6
-
         self.ledger['Units'] = self.ledger.apply(
-            lambda row: row['Units'] * ((row['YieldPA']) * deltaYears +
-                                        1) if abs(row['YieldPA']) != 0 else row['Units'],
+            lambda row: row['Units'] * ((row['YieldPA']+1) **
+                                        deltaYears) if abs(row['YieldPA']) > 1e-6 else 0,
             axis=1
         )
-
-        self.ledger.at['USD', 'Units'] += 12*1e6
 
         self.timestamp = newTime
 
@@ -210,6 +206,10 @@ class Portfolio:
             }
             for asset, row in self.ledger.iterrows()])
 
+        positiveValue = summary_df.loc[summary_df['Units']
+                                       > 0, 'USD Total Val'].sum()
+        summary_df['Weight'] = summary_df['USD Total Val']/positiveValue
+
         return summary_df
 
     def to_string(self):
@@ -245,7 +245,7 @@ class Portfolio:
             df = pd.DataFrame([{
                 'Asset': d['asset'],
                 'Units': d['units'],
-                'YieldPA': 1,
+                'YieldPA': 0,
                 'TransactionIdxs': []}
                 for d in startingBal])
         else:
@@ -419,8 +419,6 @@ class Portfolio:
         linewidth = 100
 
         totalValue = df['USD Total Val'].sum()
-
-        df['Weight'] = df['USD Total Val']/totalValue
 
         out = f"\n\n{str('Portfolio Overview'):^100}" + "\n"
         out += "=" * linewidth + "\n"

@@ -4,7 +4,7 @@ import pandas as pd
 from fins3666.defines import Order, AssetSpreads, ACCOUNT_SIZE_USD
 
 
-def generate_orders(yields, current_positions, fx):
+def generate_orders(yields, current_positions, fx, min_balance=0, size=None):
     """
     Returns a list of orders required to rebalance position
 
@@ -18,10 +18,19 @@ def generate_orders(yields, current_positions, fx):
     timestamp = yields.iloc[-1]['Timestamp']
     # Current position value
     df = current_positions[['Asset', 'Liquidation Value', 'Units']].copy()
-    market_value = df['Liquidation Value'].sum()
-    df['Weight'] = df['Liquidation Value']/(market_value)
+
+    position = df['Liquidation Value'].sum()
+    long_positions = df.loc[df['Liquidation Value']
+                            > 0, 'Liquidation Value'].sum()
+    short_positions = position - long_positions
+
+    df['Weight'] = df['Liquidation Value']/(long_positions)
 
     df['Short'] = df['Liquidation Value'] < 0
+
+    # Determine USD value for optimal portfolio weighting with asset and number
+    size = long_positions if size is None else size
+    per_asset_value = (size)/3
 
     # sort all rates in ascending order
     yields = yields.drop(columns=['Period', 'Timestamp'])
@@ -44,11 +53,8 @@ def generate_orders(yields, current_positions, fx):
         (~df['Short'] & ~df['Asset'].isin(c_long) & (df['Units'] != 0))
     )
 
-    # Determine optimal portfolio weighting with asset and number
-    per_asset_value = (market_value)/3
-
     transactions = [(row.Asset, -row.Units)
-                    for row in df.itertuples()]
+                    for row in df.itertuples() if abs(row.Units) > 1e-6]
 
     for currency in c_long:
         units = fx.ask.at[currency, 'USD'] * per_asset_value
@@ -66,7 +72,8 @@ def generate_orders(yields, current_positions, fx):
         else:
             aggregated[asset] = units
 
-    transactions = [(asset, units) for asset, units in aggregated.items()]
+    transactions = [(asset, units)
+                    for asset, units in aggregated.items() if abs(units) > 1e-4]
     buy = [t for t in transactions if t[1] > 0]
     sell = [t for t in transactions if t[1] < 0]
 

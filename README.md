@@ -181,12 +181,16 @@ With these building blocks in place, the backtesting/execution engine can be bro
 
 ```mermaid
 flowchart TD
-    A[Get current data for date:\nExchange rates and yields];
+    A[Get current data for date:
+    Exchange rates and yields];
     B[Update portfolio position and value];
-    C{Is `newMonth`?};
+    C{Is **newMonth**?};
     D[Get current open portfolio positions];
-    E[Generate list of orders using:\ncurrent position,\ncurrent yield,\ndesired size data];
-    F[Append each order to portfolio\nwith new_order];
+    E[Generate orders. Parameters:
+    *current position*,
+    *current yield*,
+    *desired size*];
+    F[Append each order to portfolio with **new_order**];
     G[Call update hook for Portfolio];
 
     A --> B;

@@ -2,6 +2,41 @@
 
 This repository contains the the code used to model, test and implement the elected trading strategy for team [TOTO](https://www.youtube.com/watch?v=FTQbiNvZqaY) in the FINS3666 Group Assessment.
 
+## Contents
+
+<!-- @import "[TOC]" {cmd="toc" depthFrom=1 depthTo=6 orderedList=false} -->
+
+<!-- code_chunk_output -->
+
+- [FINS3666 Assignment 03](#fins3666-assignment-03)
+  - [Contents](#contents)
+  - [📂 File Hierarchy](#-file-hierarchy)
+  - [🥅 Project Objective](#-project-objective)
+  - [📈 Strategy](#-strategy)
+  - [⚙️ How It Works](#️-how-it-works)
+    - [1. Defining the Portfolio](#1-defining-the-portfolio)
+      - [Example](#example)
+      - [Output](#output)
+    - [2. Implementing the strategy](#2-implementing-the-strategy)
+      - [`Order` class](#order-class)
+      - [Queueing an Order](#queueing-an-order)
+      - [`carry_trade.py`](#carry_tradepy)
+    - [Strategy Execution](#strategy-execution)
+      - [Sample Loop](#sample-loop)
+  - [❓Implementation Details - `Portfolio` Class](#implementation-details---portfolio-class)
+    - [✅ Purpose](#-purpose)
+    - [📦 Constructor](#-constructor)
+      - [Parameters](#parameters)
+    - [📊 Public Methods](#-public-methods)
+      - [`summary()`](#summary)
+    - [🔢 Public Attributes](#-public-attributes)
+    - [🧾 Representation](#-representation)
+  - [❓Implementation Details - `carry_trade.py`](#implementation-details---carry_tradepy)
+  - [⚠️ Requirements](#️-requirements)
+  - [📓 Notes](#-notes)
+
+<!-- /code_chunk_output -->
+
 ## 📂 File Hierarchy
 
 ```

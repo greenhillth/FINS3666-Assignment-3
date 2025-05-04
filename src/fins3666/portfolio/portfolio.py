@@ -4,8 +4,11 @@ import uuid
 import logging
 from typing import Union, List
 from datetime import datetime, timedelta
+import statsmodels.api as sm
 
 from fins3666.defines import Order, AssetSpreads
+
+ACCOUNT_MARGIN = 1.2e6
 
 
 class Portfolio:
@@ -21,7 +24,7 @@ class Portfolio:
         Example:
             >>> portfolio = Portfolio(timestamp=datetime(2020,09,1), starting_balance=[{
             >>>     "asset": "USD",
-            >>>     "units": 12000,
+            >>>     "units": ACCOUNT_MARGIN,
             >>>     "yield": 2,
             >>>     "unit_value_USD": 1},
             >>>     {
@@ -34,6 +37,12 @@ class Portfolio:
             None
 
         """
+
+        self.longValue = 12e6
+        # Position Tracker
+        self.balance = pd.Series([ACCOUNT_MARGIN], index=[timestamp])
+        self.investment = pd.Series([ACCOUNT_MARGIN], index=[timestamp])
+        self.returns = pd.Series([0], index=[timestamp])
 
         # Portfolio Characteristics (Scalar)
         self.sharpe_ratio = None
@@ -58,11 +67,27 @@ class Portfolio:
         self.t_log = logging.getLogger("TradeLogger")
         self.t_log.setLevel(logging.INFO)
 
+        self.p_log = logging.getLogger("PositionLogger")
+        self.p_log.setLevel(logging.INFO)
+
         if not self.t_log.handlers:
             file_handler = logging.FileHandler("trades.log", mode='w')
             formatter = logging.Formatter('%(asctime)s - %(message)s')
             file_handler.setFormatter(formatter)
             self.t_log.addHandler(file_handler)
+        if not self.p_log.handlers:
+            file_handler = logging.FileHandler("position.csv", mode='w')
+            formatter = logging.Formatter('%(message)s')
+            file_handler.setFormatter(formatter)
+            self.p_log.addHandler(file_handler)
+
+        curr_list = ['USD', 'JPY', 'NOK', 'CHF',
+                     'NZD', 'SEK', 'CAD', 'AUD', 'EUR', 'GBP']
+        self.p_log.info(str('timestamp,netValue,'))
+        header = str('timestamp,netValue,')
+        for c in curr_list:
+            header += f'{c}_Unit_Val,{c}_size,{c}_value,{c}_yield,{c}_weight,'
+        self.p_log.info(header)
 
         self.timestamp = timestamp
 
@@ -408,9 +433,9 @@ class Portfolio:
         if 1e-6 > np.fabs(self.ledger.at[asset, 'Units']):
             self.ledger.at[asset, 'Units'] = 0
         elif self.ledger.at[asset, 'Units'] > 0:
-            self.ledger.at[asset, 'YieldPA'] = yield_pa[0]
-        elif self.ledger.at[asset, 'Units'] < 0:
             self.ledger.at[asset, 'YieldPA'] = yield_pa[1]
+        elif self.ledger.at[asset, 'Units'] < 0:
+            self.ledger.at[asset, 'YieldPA'] = yield_pa[0]
 
     """Namespace methods for Portfolio class"""
 
@@ -419,11 +444,14 @@ class Portfolio:
         linewidth = 100
 
         totalValue = df['USD Total Val'].sum()
+        self.longValue = df.loc[df['USD Total Val']
+                                > 0, 'USD Total Val'].sum()
 
         out = f"\n\n{str('Portfolio Overview'):^100}" + "\n"
         out += "=" * linewidth + "\n"
         out += f"{'Asset':<9}{'Value':<11}{'Units':<15}{'Total Value (USD)':<28}{'Position':<15}{'Yield p.a':<15}{'Weight':<6}\n"
         out += "=" * linewidth + "\n"
+        logmsg = f'{self.timestamp.isoformat()},{totalValue:.2f},'
         for asset, row in df.iterrows():
             out += (
                 f"{str(row['Asset']):<7}"
@@ -440,7 +468,27 @@ class Portfolio:
         out += f"Timestamp: {self.timestamp},\n"
         out += f"Net Value ($USD): ${totalValue:,.2f}"
 
-        # get sum of
+        asset_list = ['USD', 'JPY', 'NOK', 'CHF',
+                      'NZD', 'SEK', 'CAD', 'AUD', 'EUR', 'GBP']
+        for a in asset_list:
+            row = df.loc[df['Asset'] == a]
+            if (row.empty):
+                logmsg += ',,,,,'
+            else:
+                logmsg += (
+                    f'{row['USD Unit Val'].values[0]:.2f},'
+                    f'{row['Units'].values[0]:.2f},{row['USD Total Val'].values[0]:.2f},'
+                    f'{row['Yield'].values[0]:.6f},{row['Weight'].values[0]:.2f},'
+                )
+
+        self.p_log.info(logmsg)
+
+        self.balance[self.timestamp] = totalValue
+
+        self.investment[self.timestamp] = 0 if totalValue >= 0 else -totalValue
+
+        # self.returns[self.timestamp] = self.balance.sum()/self.investment.sum()
+
         return str(out)
 
     def __repr__(self):
@@ -501,3 +549,68 @@ class Portfolio:
             ask = spread_dfs.ask.at[tic]
             mid = spread_dfs.mid.at[tic]
         return bid, ask, mid
+
+    @staticmethod
+    def metrics(portfolio_values: pd.Series,
+                benchmark_values: pd.Series,
+                risk_free_rates: pd.Series,
+                periods_per_year: int = 12):
+        """
+        Computes key performance metrics from portfolio and benchmark value series.
+
+        Parameters:
+            portfolio_values (pd.Series): Portfolio value in USD over time.
+            benchmark_values (pd.Series): Benchmark value in USD over time.
+            risk_free_rates (pd.Series): Daily/periodic risk-free rates as decimals.
+
+        Returns:
+            dict: A dictionary of performance metrics.
+        """
+        # Align inputs
+        data = pd.DataFrame({
+            'portfolio': portfolio_values,
+            'benchmark': benchmark_values,
+            'risk_free': risk_free_rates
+        }).dropna()
+
+        # Calculate periodic returns
+        data['portfolio_return'] = data['portfolio'].pct_change()
+        data['benchmark_return'] = data['benchmark'].pct_change()
+        data['excess_return'] = data['portfolio_return'] - \
+            ((data['risk_free'])/periods_per_year)
+
+        # Drop NaNs created by pct_change
+        data = data.dropna()
+
+        # Sharpe Ratio
+        sharpe_ratio = (data['excess_return'].mean() /
+                        data['excess_return'].std()) * periods_per_year
+
+        # Sortino Ratio
+        downside = data['excess_return'][data['excess_return'] < 0]
+        sortino_ratio = (data['excess_return'].mean() /
+                         downside.std()) * periods_per_year if not downside.empty else np.nan
+
+        # Max Drawdown
+        rolling_max = data['portfolio'].cummax()
+        drawdown = data['portfolio'] / rolling_max - 1.0
+        max_drawdown = drawdown.min()
+
+        # Volatility
+        volatility = data['portfolio_return'].std() * np.sqrt(periods_per_year)
+
+        # Alpha & Beta
+        cov_matrix = np.cov(data['portfolio_return'], data['benchmark_return'])
+        beta = cov_matrix[0, 1] / cov_matrix[1, 1]
+        alpha = (data['portfolio_return'].mean() - beta *
+                 data['benchmark_return'].mean()) * 1e3 + 1
+
+        return {
+            'Sharpe Ratio': sharpe_ratio,
+            'Sortino Ratio': sortino_ratio,
+            'Max Drawdown': max_drawdown,
+            'Volatility': volatility,
+            'Alpha': alpha,
+            'Beta': beta,
+            'df': data
+        }

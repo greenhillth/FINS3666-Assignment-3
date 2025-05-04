@@ -177,8 +177,29 @@ In addition to this, the `size` parameter can be set, which indicates the desire
 ### Strategy Execution
 
 With these building blocks in place, the backtesting/execution engine can be broken down into the following loop:
+<br>
 
-<pre> ```mermaid flowchart TD A[Get current data for `date`:<br>Exchange rates and yields] B[Update portfolio position and value] C{Is `newMonth`?} D[Get current open portfolio positions] E[Generate list of orders using:<br>current position,<br>current yield,<br>desired size data] F[Append each order to portfolio<br>with `new_order(Order)`] G[Call update hook for Portfolio] A --> B --> C C -- Yes --> D --> E --> F --> G C -- No -----------------------> G ``` </pre>
+```mermaid
+flowchart TD
+    A[Get current data for date:\nExchange rates and yields];
+    B[Update portfolio position and value];
+    C{Is `newMonth`?};
+    D[Get current open portfolio positions];
+    E[Generate list of orders using:\ncurrent position,\ncurrent yield,\ndesired size data];
+    F[Append each order to portfolio\nwith new_order];
+    G[Call update hook for Portfolio];
+
+    A --> B;
+    B --> C;
+    C -- Yes --> D;
+    D --> E;
+    E --> F;
+    F --> G;
+    C -- No --> G;
+
+```
+
+</br>
 
 #### Sample Loop
 

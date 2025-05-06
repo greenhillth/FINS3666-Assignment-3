@@ -70,19 +70,19 @@ class Portfolio:
         self.p_log.setLevel(logging.INFO)
 
         if not self.t_log.handlers:
-            file_handler = logging.FileHandler("trades.log", mode='w')
+            file_handler = logging.FileHandler("./logs/trades.log", mode='w')
             formatter = logging.Formatter('%(asctime)s - %(message)s')
             file_handler.setFormatter(formatter)
             self.t_log.addHandler(file_handler)
         if not self.p_log.handlers:
-            file_handler = logging.FileHandler("position.csv", mode='w')
+            file_handler = logging.FileHandler(
+                "./data/processed/position.csv", mode='w')
             formatter = logging.Formatter('%(message)s')
             file_handler.setFormatter(formatter)
             self.p_log.addHandler(file_handler)
 
         curr_list = ['USD', 'JPY', 'NOK', 'CHF',
                      'NZD', 'SEK', 'CAD', 'AUD', 'EUR', 'GBP']
-        self.p_log.info(str('timestamp,netValue,'))
         header = str('timestamp,netValue,')
         for c in curr_list:
             header += f'{c}_Unit_Val,{c}_size,{c}_value,{c}_yield,{c}_weight,'

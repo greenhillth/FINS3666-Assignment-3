@@ -7,7 +7,14 @@
   "settings": {
     "python.defaultInterpreterPath": "/home/tgreenhill/miniconda3/envs/fins3646/bin/python",
     "markdown.validate.enabled": true,
-    "python.analysis.exclude": ["${workspaceFolder}/data/**", "**.csv"]
+    "python.analysis.exclude": ["${workspaceFolder}/data/**", "**.csv"],
+    "markdownlint.config": {
+      "MD033": false
+    },
+    "files.exclude": {
+      "**/.git": true,
+      "**/SubmissionFolder": true
+    }
     // "jupyter.jupyterServerType": "local",
     // "jupyter.interpreterPath": "/home/tgreenhill/miniconda3/envs/fins3646/bin/python"
   }

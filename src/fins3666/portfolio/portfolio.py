@@ -25,7 +25,6 @@ class Portfolio:
             >>> portfolio = Portfolio(timestamp=datetime(2020,09,1), starting_balance=[{
             >>>     "asset": "USD",
             >>>     "units": ACCOUNT_MARGIN,
-            >>>     "yield": 2,
             >>>     "unit_value_USD": 1},
             >>>     {
             >>>     "asset": "AUD",

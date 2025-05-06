@@ -5,7 +5,9 @@
     }
   ],
   "settings": {
-    "python.defaultInterpreterPath": "/home/tgreenhill/miniconda3/envs/fins3646/bin/python"
+    "python.defaultInterpreterPath": "/home/tgreenhill/miniconda3/envs/fins3646/bin/python",
+    "markdown.validate.enabled": true,
+    "python.analysis.exclude": ["${workspaceFolder}/data/**", "**.csv"]
     // "jupyter.jupyterServerType": "local",
     // "jupyter.interpreterPath": "/home/tgreenhill/miniconda3/envs/fins3646/bin/python"
   }

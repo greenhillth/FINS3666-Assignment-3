@@ -39,7 +39,7 @@ This repository contains the the code used to model, test and implement the elec
 
 ## 📂 File Hierarchy
 
-```
+```text
 /FINS3666/Assignment03/
 ├── README.md                   # Project documentation
 ├── data/                       # Contains datasets used for analysis
@@ -132,7 +132,7 @@ print(SamplePortfolio)
 
 #### Output
 
-```
+```text
                                          Portfolio Overview
 ====================================================================================================
 Asset    Value      Units          Total Value (USD)           Position       Yield p.a      Weight
@@ -192,7 +192,7 @@ print(order_example.summary_str())
 
 **Outputs:**
 
-```
+```text
 Order ID: f0661a90-28f7-11f0-b460-00155dd4b9c5 | Asset: NOK/USD | Units: 100000 | Order Type: limit | Order Side: buy | Timestamp: 2024-06-28T00:00:00 | Currency: USD | Limit Price: 0.09391 | Expiry: 2025-06-01T12:00:00 | Exchange: NYSE | Asset Type: Currency
 
 
@@ -246,29 +246,29 @@ flowchart TD
 fx_data = pd.read_csv('sampleFX.csv')
 '''
     a dataframe with the columns ['timestamp'], ['tic'], ['bid'], ['ask'] and ['mid']. Example:
-    >>>     timestamp               tic          bid        ask         mid
-    >>> 0   2024-06-28 00:00:00	    USD/NOK	    10.6446	    10.6504	    10.6475
-    >>> 1   2024-06-28 00:00:00	    USD/JPY	    160.84	    160.88	    160.86
-    >>> 2	2024-06-28 00:00:00	    USD/NZD	    1.6404199	1.6417665	1.641093
-    >>> 3	2024-06-28 00:00:00	    USD/CAD	    1.3682	    1.3685	    1.36835
-    >>> 4	2024-06-28 00:00:00	    USD/GBP	    0.7909515	0.7912018	0.79107666
-    >>> 5	2024-06-28 00:00:00	    USD/SEK	    10.5875	    10.5929	    10.5902
-    >>> 6	2024-06-28 00:00:00	    USD/EUR	    0.9329229	0.9331840	0.93305343
-    >>> 7	2024-06-28 00:00:00	    USD/CHF	    0.8984	    0.8988	    0.8986
-    >>> 8	2024-06-28 00:00:00	    USD/AUD	    1.4970060	1.4976786	1.4973422
+    >>>     timestamp               tic          bid        ask          mid
+    >>> 0   2024-06-28 00:00:00    USD/NOK     10.6446     10.6504     10.6475
+    >>> 1   2024-06-28 00:00:00    USD/JPY     160.84      160.88      160.86
+    >>> 2   2024-06-28 00:00:00    USD/NZD     1.6404199   1.6417665   1.641093
+    >>> 3   2024-06-28 00:00:00    USD/CAD     1.3682      1.3685      1.36835
+    >>> 4   2024-06-28 00:00:00    USD/GBP     0.7909515   0.7912018   0.79107666
+    >>> 5   2024-06-28 00:00:00    USD/SEK     10.5875     10.5929     10.5902
+    >>> 6   2024-06-28 00:00:00    USD/EUR     0.9329229   0.9331840   0.93305343
+    >>> 7   2024-06-28 00:00:00    USD/CHF     0.8984      0.8988      0.8986
+    >>> 8   2024-06-28 00:00:00    USD/AUD     1.4970060   1.4976786   1.4973422
 '''
 mkt_data = pd.read_csv('sampleYields.csv')
 '''
     a dataframe with the columns ['Timestamp'], and [f'{Asset} SHORT'] and [f'{Asset} LONG'] columns, for each held asset.
     Yields are expressed in percentage points, per annum. Example:
-    >>>  Timestamp              GBP SHORT	GBP LONG	USD SHORT	USD LONG	JPY SHORT	JPY LONG
-    >>>  2024-06-22 00:00:00    6.764	    5.321   	7.157	    5.991	    1.641   	1.749
-    >>>  2024-06-23 00:00:00    6.757	    5.321   	7.141	    5.991	    1.646   	1.749
-    >>>  2024-06-24 00:00:00    6.764	    5.321   	7.147	    5.991	    1.638   	1.749
-    >>>  2024-06-25 00:00:00    6.755	    5.321   	7.165	    5.991	    1.629   	1.749
-    >>>  2024-06-26 00:00:00    6.762	    5.321   	7.227	    5.991	    1.651   	1.749
-    >>>  2024-06-27 00:00:00    6.757	    5.321   	7.239	    5.991	    1.650    	1.749
-    >>>  2024-06-28 00:00:00    6.759	    5.321   	7.234	    5.991	    1.646   	1.749
+    >>>  Timestamp            GBP SHORT  GBP LONG  USD SHORT  USD LONG  JPY SHORT  JPY LONG
+    >>>  2024-06-22 00:00:00    6.764      5.321     7.157      5.991     1.641      1.749
+    >>>  2024-06-23 00:00:00    6.757      5.321     7.141      5.991     1.646      1.749
+    >>>  2024-06-24 00:00:00    6.764      5.321     7.147      5.991     1.638      1.749
+    >>>  2024-06-25 00:00:00    6.755      5.321     7.165      5.991     1.629      1.749
+    >>>  2024-06-26 00:00:00    6.762      5.321     7.227      5.991     1.651      1.749
+    >>>  2024-06-27 00:00:00    6.757      5.321     7.239      5.991     1.650      1.749
+    >>>  2024-06-28 00:00:00    6.759      5.321     7.234      5.991     1.646      1.749
 '''
 
 startTime = timestamp(2010,1,1)
@@ -375,7 +375,7 @@ repr(portfolio)
 
 Returns the portfolio's `DataFrame` as a string, along with a summary line:
 
-```
+```text
 USD     100     1.00    100.0   0.0     0.25
 EUR     200     2.00    400.0   0.0     0.75
 Portfolio - (2 assets)
@@ -403,7 +403,7 @@ pip install -r requirements.txt
 
 If anyone has actually bothered to read this far, just know that I love you. 💞
 
-<img src="/readme/yippee.gif">
+![yippee](/readme/yippee.gif)
 
 You may also feel free to question why on earth I went to all the effort of writing this documentation. I would implore you to keep asking because I don't have the answer. Just wanted a break from coding I guess.
 
